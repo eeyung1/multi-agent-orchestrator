@@ -31,7 +31,7 @@ def planning_node(state: ProjectState) -> dict:
             "errors": state.get("errors", []) + ["No project request provided to planner."]
         }
 
-    llm = get_chat_model(temperature=0.1)
+    llm = get_chat_model(role="planner", temperature=0.1)
     structured_llm = llm.with_structured_output(PlanOutput)
     chain = PLANNER_PROMPT | structured_llm
 

@@ -1,5 +1,5 @@
 import os
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from orchestrator.state import ProjectState
@@ -41,27 +41,17 @@ def validation_node(state: ProjectState) -> dict:
     }
 
 
-def route_after_planner(state: ProjectState) -> Literal["frontend", "backend", "__end__"]:
+def route_after_planner(state: ProjectState) -> List[str]:
     if state.get("planning_status") == "failed":
-        return END
+        return [END]
 
-    has_frontend = bool(state.get("frontend_tasks"))
-    has_backend = bool(state.get("backend_tasks"))
-
-    if has_frontend:
-        return "frontend"
-    elif has_backend:
-        return "backend"
-    return "validation"
-
-
-def route_after_frontend(state: ProjectState) -> Literal["backend", "validation"]:
-    if state.get("frontend_status") == "failed":
-        return "validation"
-
+    targets = []
+    if bool(state.get("frontend_tasks")):
+        targets.append("frontend")
     if bool(state.get("backend_tasks")):
-        return "backend"
-    return "validation"
+        targets.append("backend")
+
+    return targets if targets else ["validation"]
 
 
 def build_orchestrator_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
@@ -74,26 +64,15 @@ def build_orchestrator_graph(checkpointer: Optional[BaseCheckpointSaver] = None)
 
     builder.add_edge(START, "planner")
 
+    # Conditional fan-out to parallel workers
     builder.add_conditional_edges(
         "planner",
         route_after_planner,
-        {
-            "frontend": "frontend",
-            "backend": "backend",
-            "validation": "validation",
-            END: END
-        }
+        ["frontend", "backend", "validation", END]
     )
 
-    builder.add_conditional_edges(
-        "frontend",
-        route_after_frontend,
-        {
-            "backend": "backend",
-            "validation": "validation"
-        }
-    )
-
+    # Fan-in convergence into validation
+    builder.add_edge("frontend", "validation")
     builder.add_edge("backend", "validation")
     builder.add_edge("validation", END)
 

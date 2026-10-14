@@ -39,7 +39,7 @@ def backend_node(state: ProjectState) -> dict:
             "backend_artifacts": []
         }
 
-    llm = get_chat_model(temperature=0.1)
+    llm = get_chat_model(role="backend", temperature=0.1)
     structured_llm = llm.with_structured_output(BackendOutput)
     chain = BACKEND_PROMPT | structured_llm
 

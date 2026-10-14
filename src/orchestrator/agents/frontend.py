@@ -39,7 +39,7 @@ def frontend_node(state: ProjectState) -> dict:
             "frontend_artifacts": []
         }
 
-    llm = get_chat_model(temperature=0.1)
+    llm = get_chat_model(role="frontend", temperature=0.1)
     structured_llm = llm.with_structured_output(FrontendOutput)
     chain = FRONTEND_PROMPT | structured_llm
 
