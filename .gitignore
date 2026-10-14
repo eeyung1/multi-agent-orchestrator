@@ -23,3 +23,4 @@ htmlcov/
 # Editor settings
 .vscode/
 .idea/
+*.egg-info/
