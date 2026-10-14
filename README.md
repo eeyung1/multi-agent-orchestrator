@@ -1,45 +1,66 @@
 # LangGraph Multi-Agent Software Development Orchestrator
 
-A system built with LangGraph coordinating Planning, Frontend, and Backend agents.
+A LangGraph-powered multi-agent orchestrator that coordinates Planning, Frontend, and Backend agents within strict workspace boundaries.
 
 ---
 
-## 1. Environment Activation
+## Fresh Machine Setup (Ubuntu / Linux)
 
-Always activate the virtual environment:
+1. **Clone the Repository:**
+   ```bash
+   git clone <repo-url>
+   cd multi-agent-orchestrator
+   ```
 
-```bash
-cd /home/student/multi-agent-orchestrator
-source .venv/bin/activate
-```
+". **Create & Activate Virtual Environment:**
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Install Dependencies:**
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+4. **Configure API Keys:**
+   ```bash
+   cp .env.example .env
+   ```
+   Open `.env` and set your key:
+   ``text
+   GEMINI_API_KEY=hey_your_key_here
+   ORCHESTRATOR_MODEL_PROVIDER=gemini
+   ``@
 
 ---
 
-## 2. Running Against a Project Blueprint Folder
+## How to Use With a Project Blueprint
 
-Place your blueprint `blueprint.md` in your target workspace directory:
+1. **Create a target project directory:**
+   ```bash
+   mkdir -p ../my-new-app
+   ``@
 
-```bash
-mkdir -p ./sample_project
-cp your_blueprint.md ./sample_project/blueprint.md
-```
+2. **Place your blueprint file in that folder:**
+   Create a blueprint file named `blueprint.md` (also accepts `README.md` or `specs.md`) inside `../my-new-app`.
 
-Run the orchestrator pointing to that folder:
-
-```bash
-python -m orchestrator.cli --workspace ./sample_project
-```
+3. **Run the Orchestrator:**
+   ```bash
+   python -m orchestrator.cli --workspace ../my-new-app
+   ``@
 
 The orchestrator will:
-1. Read blueprint.md from the workspace.
-2. Plan the architecture and components.
-3. Implement frontend and backend artifacts.
-4. Safely write files directly into the target workspace.
+- Read the blueprint file from the workspace.
+- Decompose requirements via the Planning Agent.
+- Generate USer Interface files via the Frontend Agent.
+- Implement API routes, LOgic, and database schemas via the Backend Agent.
+- Safely write all files directly into the target workspace.
 
 ---
 
-## 3. Running Tests
+## Running Tests
 
 ```bash
-pytest tests/test_state.py tests/test_routing.py tests/test_checkpoint.py tests/test_tools.py tests/test_graph_compilation.py
-```
+pytest
+p``
