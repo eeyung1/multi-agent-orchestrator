@@ -3,27 +3,28 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multi-agent-orchestrator"
+name = "orchestrator"
 version = "0.1.0"
 description = "Multi-Agent Software Development Orchestrator using LangGraph"
-authors = [{ name = "eeyung1" }]
+authors = [{ name = "Orchestrator Team" }]
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
-    "langchain-google-genai>=4.0.0",
+    "langchain-groq>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "langchain-anthropic>=0.3.0",
     "pydantic>=2.0.0",
-    "python-dotenv>=1.0.0"
+    "python-dotenv>=1.0.0",
+    "requests>=2.28.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0"
+    "pytest>=7.0.0",
+    "pytest-mock>=3.10.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.pytest.ini_options]
-pythonpath = ["src"]
-testpaths = ["tests"]
