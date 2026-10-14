@@ -1,100 +1,95 @@
-import argparse
 import os
 import sys
 import uuid
-from pathlib import Path
+import argparse
 from orchestrator.graph import build_orchestrator_graph
-from orchestrator.state import ProjectState
 
+def find_blueprint_content(workspace: str, explicit_blueprint: str = None) -> str:
+    if explicit_blueprint and os.path.isfile(explicit_blueprint):
+        with open(explicit_blueprint, "r", encoding="utf-8") as f:
+            return f.read().strip()
 
-def find_blueprint(workspace_path: Path) -> str:
-    candidates = ["blueprint.md", "README.md", "specs.md", "spec.md", "prompt.txt"]
-    for name in candidates:
-        candidate_file = workspace_path / name
-        if candidate_file.is_file():
-            print(f"📖 Found blueprint file: {candidate_file}")
-            return candidate_file.read_text(encoding="utf-8")
+    candidates = ["blueprint.md", "README.md", "specs.md"]
+    for c in candidates:
+        full_path = os.path.join(workspace, c)
+        if os.path.isfile(full_path):
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    print(f"📖 Found blueprint file: {full_path}")
+                    return content
     return ""
 
+def run_orchestrator(prompt: str, workspace: str, blueprint: str = None):
+    run_id = uuid.uuid4().hex[:8]
+    abs_workspace = os.path.abspath(workspace)
+    os.environ["TARGET_WORKSPACE_DIR"] = abs_workspace
 
-def run_orchestrator(prompt: str, workspace_dir: str, blueprint_file: str = None):
-    run_id = str(uuid.uuid4())[:8]
-    workspace_path = Path(workspace_dir).resolve()
-    workspace_path.mkdir(
-parents=True, exist_ok=True)
-
-    request_content = prompt or ""
-    if blueprint_file:
-        bf_path = Path(blueprint_file).resolve()
-        if bf_path.is_file():
-            print(f"📖 Loading designated blueprint: {bf_path}")
-            request_content = bf_path.read_text(encoding="utf-8")
-    elif not request_content:
-        request_content = find_blueprint(workspace_path)
-
-    if not request_content.strip():
-        print("❌ Error: No request provided and no blueprint (blueprint.md / specs.md / README.md) found in workspace.")
+    effective_prompt = prompt or find_blueprint_content(abs_workspace, blueprint)
+    if not effective_prompt:
+        print("❌ Error: No prompt provided and no valid blueprint found in workspace.")
         sys.exit(1)
 
-    print(f"\n======================================================")
+    print("\n======================================================")
     print(f"🚀 MULTI-AGENT ORCHESTRATOR [Run ID: {run_id}]")
-    print(f"📁 Workspace: {workspace_path}")
-    print(f"=====================================================\n")
+    print(f"📁 Workspace: {abs_workspace}")
+    print("=====================================================\n")
 
-    os.environ["TARGET_WORKSPACE_DIR"] = str(workspace_path)
+    initial_state = {
+        "project_prompt": effective_prompt,
+        "user_request": effective_prompt,
+        "project_request": effective_prompt,
+        "target_workspace": abs_workspace,
+        "architecture_overview": None,
+        "frontend_tasks": [],
+        "backend_tasks": [],
+        "planning_status": None,
+        "frontend_artifacts": [],
+        "frontend_status": None,
+        "backend_artifacts": [],
+        "backend_status": None,
+        "validation_status": None,
+        "test_results": {},
+        "errors": [],
+        "overall_status": None,
+    }
+
     app = build_orchestrator_graph()
-    initial_state: ProjectState = {"request": request_content}
 
     for event in app.stream(initial_state):
         for node_name, node_output in event.items():
             print(f"--- [Node: {node_name.upper()}] ---")
-
-            if node_name == "planner":
+            if "planning_status" in node_output:
                 print(f"Status: {node_output.get('planning_status')}")
-                print(f"Architecture: {node_output.get('architecture', '')[:140]}...")
-                print(f"Frontend Tasks: {len(node_output.get('frontend_tasks', []))}")
-                print(f"Backend Tasks:  {len(node_output.get('backend_tasks', []))}")
-
-            elif node_name == "frontend":
+                arch = node_output.get("architecture_overview") or ""
+                print(f"Architecture: {arch[:120]}..." if len(arch) > 120 else f"Architecture: {arch}")
+                print(f"Frontend Tasks: {len(node_output.get('frontend_tasks') or [])}")
+                print(f"Backend Tasks:  {len(node_output.get('backend_tasks') or [])}")
+            if "frontend_status" in node_output:
                 print(f"Status: {node_output.get('frontend_status')}")
-                artifacts = node_output.get("frontend_artifacts", [])
-                print(f"Generated {len(artifacts)} frontend file(s):")
-                for art in artifacts:
-                    print(f"  • {art.get('filepath')}")
-
-            elif node_name == "backend":
+                print(f"Generated {len(node_output.get('frontend_artifacts') or [])} frontend file(s)")
+            if "backend_status" in node_output:
                 print(f"Status: {node_output.get('backend_status')}")
-                artifacts = node_output.get("backend_artifacts", [])
-                print(f"Generated {len(artifacts)} backend file(s):")
-                for art in artifacts:
-                    print(f"  •{art.get('filepath')}")
-
-            elif node_name == "validation":
-                print(f"Status: {node_output.get('validation_status')}")
-                written = node_output.get('test_results', {}).get('written_files', [])
-                print(f"Successfully written {len(written)} file(s) into workspace:")
-                for f in written:
-                    print(f"  ✅ {f}")
-
-            errors = node_output.get('errors', [])
-            if errors:
-                print(f"≠ Errors: {errors}")
+                print(f"Generated {len(node_output.get('backend_artifacts') or [])} backend file(s)")
+            if "validation_status" in node_output:
+                print(f"Validation: {node_output.get('validation_status')}")
+                print(f"Overall Status: {node_output.get('overall_status')}")
+            if node_output.get("errors"):
+                print(f"≠ Errors: {node_output.get('errors')}")
             print()
 
-    print(f"====================================================")
+    print("====================================================")
     print(f"🏁 Run ID +{run_id} Completed Successfully.")
-    print(f"====================================================\n")
-
+    print("====================================================\n")
 
 def main():
-    parser = argparse.ArgumentParser(description="LangGraph Multi-Agent Software Development Orchestrator")
-    parser.add_argument("prompt", nargs="?", default="", help="Optional project prompt.")
-    parser.add_argument("--workspace", required=True, help="Path to target workspace directory")
-    parser.add_argument("--blueprint", default=None, help="Optional path to blueprint file")
+    parser = argparse.ArgumentParser(description="Multi-Agent Development Orchestrator")
+    parser.add_argument("--prompt", type=str, default="", help="Direct instruction for code generation")
+    parser.add_argument("--workspace", type=str, default=".", help="Target workspace path")
+    parser.add_argument("--blueprint", type=str, default=None, help="Explicit path to blueprint markdown file")
     args = parser.parse_args()
 
     run_orchestrator(args.prompt, args.workspace, args.blueprint)
-
 
 if __name__ == "__main__":
     main()

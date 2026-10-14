@@ -1,29 +1,24 @@
-from typing import TypedDict, List, Optional, Dict, Any
+import operator
+from typing import List, Dict, Any, Optional, Annotated
+from typing_extensions import TypedDict
 
-
-class ProjectState(TypedDict, total=False):
-    # Requirements & Planning
+class ProjectState(TypedDict):
     request: str
-    clarified_requirements: List[str]
-    architecture: str
-    proposed_file_structure: List[str]
-    planning_status: str
-
-    # Frontend Track
-    frontend_tasks: List[str]
-    frontend_status: str
-    frontend_artifacts: List[Dict[str, Any]]
-
-    # Backend Track
-    backend_tasks: List[str]
-    backend_status: str
-    backend_artifacts: List[Dict[str, Any]]
-
-    # Validation & Quality
-    validation_status: str
-    test_results: Dict[str, Any]
-    errors: List[str]
-
-    # Human-in-the-loop & Orchestrator Control
-    pending_human_approval: Optional[str]
-    overall_status: str
+    project_prompt: Optional[str]
+    target_workspace: str
+    architecture_overview: Optional[str]
+    frontend_tasks: Optional[List[Dict[str, Any]]]
+    backend_tasks: Optional[List[Dict[str, Any]]]
+    planning_status: Optional[str]
+    
+    # Reducer channels safe for parallel branch writes
+    frontend_artifacts: Annotated[List[Dict[str, Any]], operator.add]
+    frontend_status: Optional[str]
+    
+    backend_artifacts: Annotated[List[Dict[str, Any]], operator.add]
+    backend_status: Optional[str]
+    
+    validation_status: Optional[str]
+    test_results: Optional[Dict[str, Any]]
+    errors: Annotated[List[str], operator.add]
+    overall_status: Optional[str]
