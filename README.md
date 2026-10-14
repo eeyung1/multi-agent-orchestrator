@@ -1,6 +1,15 @@
 # LangGraph Multi-Agent Software Development Orchestrator
 
-A LangGraph-powered multi-agent orchestrator that coordinates Planning, Frontend, and Backend agents within strict workspace boundaries.
+An eficient, LangGraph-powered multi-agent orchestrator that coordinates Planning, Frontend, and Backend agents within strict workspace boundaries and supports per-agent model routing.
+
+---
+
+## Features
+
+- **Parallel Agent Execution**: Frontend and Backend agents run concurrently after planning is completed.
+- **Per-Agent Role Delegation**: Assign different models/providers (e.g., Gemini for Planning, Groq for Frontend/Backend) via `.env`.
+- **Safe Workspace Boundaries**: Directory-traversal protected filesystem tools to prevent unauthorized file writes.
+- **Blueprint Auto-Discovery**: Automatically parses `blueprint.md`, `README.md`, or `specs.md` directly from the target project folder.
 
 ---
 
@@ -27,24 +36,29 @@ A LangGraph-powered multi-agent orchestrator that coordinates Planning, Frontend
    ``bash
    cp .env.example .env
    ```
-   Open `.env` and set your preferred provider and keys:
-   ``ini
-   # Set provider to groq or gemini
+   
+   Open `.env` and configure your providers and keys:
+   ``file
+   # Global default model provider (groq or gemini)
    ORCHESTRATTOR_MODEL_PROVIDER=groq
    
-   # For Groq (free tier on console.groq.com)
+   # Per-Agent Role Delegation (Optional)
+   # Use Gemini for planning and Groq qwen for fast coding:
+   PLANNER_MODEL_PROVIDER=gemini
+   FRONTEND_MODEL_PROVIDER=groq
+   BACKEND_MODEL_PROVIDER=groq
+   
+   # API Keys
    GROQ_API_KEY=your_groq_key_here
-
-   # For Gemini (free tier on aistudio.google.com)
    GEMINI_API_KEY=your_gemini_key_here
    ``@
 
 ---
 
-## How to Use With a Project Blueprint
+## Using with a Project Blueprint
 
 1. **Create a target project directory:**
-   ```bash
+   ``bash
    mkdir -p ../my-new-app
    ``@
 
@@ -52,19 +66,21 @@ A LangGraph-powered multi-agent orchestrator that coordinates Planning, Frontend
    Create a file named `blueprint.md` (also accepts `README.md` or `specs.md`) inside `../my-new-app`.
 
 3. **Run the Orchestrator:**
-   ``bash
+   ```bash
    python -m orchestrator.cli --workspace ../my-new-app
    ``@
 
 The orchestrator will:
-- Automatically detect and read `blueprint.md`.
-- Coordinate the Planning, Frontend, and Backend agents.
-- Safely write the complete source files directly into the workspace.
+- Read and parse the blueprint file.
+- Delegate tasks to the Planning Agent.
+- Run the Frontend and Backend Agents in parallel.
+- Safely write the generated code directly into the target workspace.
 
 ---
 
-## Running Unit & Routing Tests
+## Running Tests
 
+Activate your virtual environment and run:
 ```bash
 pytest tests/test_state.py tests/test_routing.py tests/test_checkpoint.py tests/test_tools.py tests/test_graph_compilation.py
 ```
