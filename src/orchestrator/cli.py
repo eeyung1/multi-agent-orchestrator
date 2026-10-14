@@ -13,7 +13,7 @@ def find_blueprint(workspace_path: Path) -> str:
         candidate_file = workspace_path / name
         if candidate_file.is_file():
             print(f"📖 Found blueprint file: {candidate_file}")
-            return candidate_file.readtext(encoding="utf-8")
+            return candidate_file.read_text(encoding="utf-8")
     return ""
 
 
@@ -28,7 +28,7 @@ parents=True, exist_ok=True)
         bf_path = Path(blueprint_file).resolve()
         if bf_path.is_file():
             print(f"📖 Loading designated blueprint: {bf_path}")
-            request_content = bf_path.readtext(encoding="utf-8")
+            request_content = bf_path.read_text(encoding="utf-8")
     elif not request_content:
         request_content = find_blueprint(workspace_path)
 
