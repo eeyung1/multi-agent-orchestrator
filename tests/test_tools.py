@@ -22,8 +22,8 @@ def test_safe_workspace_boundary_enforcement(tmp_path):
     workspace = SafeWorkspace(str(tmp_path))
     
     # Attempt directory traversal out of workspace
-    with pytest.raises(PermissionError):
+    with pytest.raises((PermissionError, ValueError)):
         workspace.write_file("../escape.txt", "Malicious content")
         
-    with pytest.raises(PermissionError):
+    with pytest.raises((PermissionError, ValueError)):
         workspace.read_file("../../etc/passwd")

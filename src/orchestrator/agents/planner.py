@@ -1,55 +1,37 @@
-from typing import List
-from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
+"""Compact planning protocol compatible with chat-only models."""
+from langchain_core.messages import HumanMessage, SystemMessage
 from orchestrator.state import ProjectState
 from orchestrator.model_factory import get_chat_model
+from orchestrator.llm import invoke_text
+from orchestrator.output import parse_plan
 
-class PlanOutput(BaseModel):
-    clarified_requirements: List[str] = Field(description="Max 4 concise key requirements.")
-    architecture: str = Field(description="Brief 2-3 sentence overview of architecture and components.")
-    proposed_file_structure: List[str] = Field(description="List of relative file paths to create.")
-    frontend_tasks: List[str] = Field(description="List of concise frontend tasks (1 line each).")
-    backend_tasks: List[str] = Field(description="List of concise backend tasks (1 line each).")
+PLANNER_PROMPT = """You are a software architect. Return ONLY a compact implementation plan.
+Use at most 180 words total, two architecture sentences, three frontend files and
+four backend files. Each task describes ONE file in at most 12 words. Use unique
+relative filepaths across both roles. Include necessary dependencies/config files.
+Do not emit code, JSON, tools, reasoning or explanations. Use exactly this format:
+### ARCHITECTURE
+Brief architecture and shared interfaces.
+### FRONTEND
+path/to/file | implementation task
+### BACKEND
+path/to/file | implementation task
+### END
+Write 'none' in a role section with no tasks. Always include all four headings.
+"""
 
-PLANNER_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", (
-        "You are an expert Software Architect. Analyze the project request and produce a modular development plan.\n"
-        "CRITICAL INSTRUCTIONS:\n"
-        "- Keep every task description strictly under 15 words.\n"
-        "- Limit clarified_requirements to at most 4 brief bullet points.\n"
-        "- Limit architecture to at most 2 sentences.\n"
-        "- Limit frontend_tasks to at most 3 items.\n"
-        "- Limit backend_tasks to at most 4 items.\n"
-        "- Avoid long explanations or character-by-character breakdowns."
-    )),
-    ("human", "Project Request:\n{request}")
-])
 
 def planning_node(state: ProjectState) -> dict:
-    req_val = state.get("request") or state.get("project_prompt") or ""
-    request = req_val.strip()
-    if not request:
-        return {
-            "planning_status": "failed",
-            "errors": ["No project request provided to planner."]
-        }
-
-    llm = get_chat_model(role="planner", temperature=0.1)
-    structured_llm = llm.with_structured_output(PlanOutput)
-
     try:
-        chain = PLANNER_PROMPT | structured_llm
-        output: PlanOutput = chain.invoke({"request": request})
-
-        return {
-            "planning_status": "completed",
-            "architecture_overview": output.architecture,
-            "frontend_tasks": output.frontend_tasks,
-            "backend_tasks": output.backend_tasks,
-            "errors": []
-        }
-    except Exception as e:
-        return {
-            "planning_status": "failed",
-            "errors": [f"Planning error: {str(e)}"]
-        }
+        request = (state.get("request") or state.get("project_prompt") or "").strip()
+        if not request:
+            raise ValueError("No project request provided to planner.")
+        model = get_chat_model(role="planner")
+        text = invoke_text(model, [SystemMessage(content=PLANNER_PROMPT), HumanMessage(content=request)], "planner")
+        architecture, frontend, backend = parse_plan(text)
+        return {"planning_status": "completed", "architecture_overview": architecture,
+                "frontend_tasks": frontend, "backend_tasks": backend,
+                "overall_status": "planned", "errors": []}
+    except Exception as exc:
+        return {"planning_status": "failed", "overall_status": "failed_with_errors",
+                "errors": [f"Planning error: {exc}"]}

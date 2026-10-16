@@ -16,7 +16,7 @@ def test_frontend_skipped_when_no_tasks():
 def test_frontend_generates_code_artifacts():
     state: ProjectState = {
         "request": "Markdown previewer app",
-        "architecture": "Single Page HTML/JS interface with CSS styling",
+        "architecture_overview": "Single Page HTML/JS interface with CSS styling",
         "frontend_tasks": [
             "Create index.html with textarea for input and div for preview",
             "Add basic styling in style.css"

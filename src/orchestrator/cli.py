@@ -5,7 +5,7 @@ import argparse
 from orchestrator.graph import build_orchestrator_graph
 
 def find_blueprint_content(workspace: str, explicit_blueprint: str = None) -> str:
-    if explicit_blueprint and os.path.isfile(explicit_blueprint):
+    if explicit_blueprint:
         with open(explicit_blueprint, "r", encoding="utf-8") as f:
             return f.read().strip()
 
@@ -23,7 +23,6 @@ def find_blueprint_content(workspace: str, explicit_blueprint: str = None) -> st
 def run_orchestrator(prompt: str, workspace: str, blueprint: str = None):
     run_id = uuid.uuid4().hex[:8]
     abs_workspace = os.path.abspath(workspace)
-    os.environ["TARGET_WORKSPACE_DIR"] = abs_workspace
 
     effective_prompt = prompt or find_blueprint_content(abs_workspace, blueprint)
     if not effective_prompt:
@@ -37,8 +36,7 @@ def run_orchestrator(prompt: str, workspace: str, blueprint: str = None):
 
     initial_state = {
         "project_prompt": effective_prompt,
-        "user_request": effective_prompt,
-        "project_request": effective_prompt,
+        "request": effective_prompt,
         "target_workspace": abs_workspace,
         "architecture_overview": None,
         "frontend_tasks": [],
@@ -56,8 +54,10 @@ def run_orchestrator(prompt: str, workspace: str, blueprint: str = None):
 
     app = build_orchestrator_graph()
 
+    overall_status = None
     for event in app.stream(initial_state):
         for node_name, node_output in event.items():
+            overall_status = node_output.get("overall_status", overall_status)
             print(f"--- [Node: {node_name.upper()}] ---")
             if "planning_status" in node_output:
                 print(f"Status: {node_output.get('planning_status')}")
@@ -79,8 +79,9 @@ def run_orchestrator(prompt: str, workspace: str, blueprint: str = None):
             print()
 
     print("====================================================")
-    print(f"🏁 Run ID +{run_id} Completed Successfully.")
+    print(f"🏁 Run ID {run_id}: {overall_status or 'failed'}")
     print("====================================================\n")
+    return 0 if overall_status == "success" else 1
 
 def main():
     parser = argparse.ArgumentParser(description="Multi-Agent Development Orchestrator")
@@ -89,7 +90,11 @@ def main():
     parser.add_argument("--blueprint", type=str, default=None, help="Explicit path to blueprint markdown file")
     args = parser.parse_args()
 
-    run_orchestrator(args.prompt, args.workspace, args.blueprint)
+    try:
+        return run_orchestrator(args.prompt, args.workspace, args.blueprint)
+    except Exception as exc:
+        print(f"Orchestration failed: {exc}", file=sys.stderr)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

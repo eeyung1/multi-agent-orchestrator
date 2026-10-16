@@ -12,15 +12,18 @@ requires-python = ">=3.10"
 dependencies = [
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
-    "langchain-groq>=0.2.0",
-    "langchain-google-genai>=2.0.0",
-    "langchain-anthropic>=0.3.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     "requests>=2.28.0",
 ]
 
 [project.optional-dependencies]
+groq = ["langchain-groq>=0.2.0"]
+gemini = ["langchain-google-genai>=2.0.0"]
+openai = ["langchain-openai>=0.2.0"]
+deepseek = ["langchain-deepseek>=0.1.0"]
+anthropic = ["langchain-anthropic>=0.3.0"]
+ollama = ["langchain-ollama>=0.2.0"]
 dev = [
     "pytest>=7.0.0",
     "pytest-mock>=3.10.0",

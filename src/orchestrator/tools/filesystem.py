@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from orchestrator.output import safe_relative_path
 from typing import List, Optional
 
 
@@ -9,9 +10,9 @@ class SafeWorkspace:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _resolve_safe_path(self, relative_path: str) -> Path:
-        target = (self.root / relative_path).resolve()
+        target = (self.root / safe_relative_path(relative_path)).resolve()
         # Verify the target path is strictly within the workspace root
-        if not str(target).startswith(str(self.root)):
+        if not target.is_relative_to(self.root):
             raise PermissionError(f"Access denied: path '{relative_path}' traverses outside workspace boundary.")
         return target
 

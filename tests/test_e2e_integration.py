@@ -17,7 +17,7 @@ def test_end_to_end_orchestration(tmp_path, monkeypatch):
 
     # 1. Verify planning completed
     assert final_state["planning_status"] == "completed"
-    assert len(final_state.get("clarified_requirements", [])) > 0
+    assert final_state["architecture_overview"]
 
     # 2. Verify frontend completed
     assert final_state["frontend_status"] == "completed"

@@ -16,7 +16,7 @@ def test_backend_skipped_when_no_tasks():
 def test_backend_generates_code_artifacts():
     state: ProjectState = {
         "request": "Note taking app",
-        "architecture": "FastAPI service with SQLite database",
+        "architecture_overview": "FastAPI service with SQLite database",
         "backend_tasks": [
             "Create SQLite database initialization script in db.py",
             "Implement POST /notes endpoint in main.py"

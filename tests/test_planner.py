@@ -16,8 +16,7 @@ def test_planner_generates_valid_plan():
     }
     result = planning_node(state)
     assert result["planning_status"] == "completed"
-    assert len(result["clarified_requirements"]) > 0
-    assert isinstance(result["architecture"], str) and len(result["architecture"]) > 0
+    assert isinstance(result["architecture_overview"], str) and len(result["architecture_overview"]) > 0
     assert len(result["frontend_tasks"]) > 0
     assert len(result["backend_tasks"]) > 0
     assert result["overall_status"] == "planned"
