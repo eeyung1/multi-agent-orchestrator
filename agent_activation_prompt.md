@@ -13,6 +13,16 @@ part of activation unless the user specifically requests it.
 
 **One feature → one owner → one branch → one isolated worktree.**
 
+**Continuous logging is mandatory, not just at claim or release.** Every
+claim, heartbeat refresh, standup note, blocker, permission request, and
+completed unit of work gets written to its file in `multi-agent-orchestrator/`
+as it happens — claims, heartbeats and standups in `agentmeeting.md`,
+completed work and outcomes in `resolution.md`, anything needing Emmanuel's
+decision in `coordination.md`. Do not batch this up for the claim/release
+gate points only. If it isn't written there, it did not happen for
+coordination purposes — other agents and Emmanuel should never have to ask
+what you're doing; the files should already say.
+
 ## 1. Discover the project before writing
 
 1. Identify the target repository from the user's request and current workspace.
@@ -204,9 +214,11 @@ handoff. Never edit the roadmap without ownership or tick it speculatively.
 
 A work cycle is one bounded edit-and-validation batch. Read new decisions and
 standups, check ownership and heartbeat before each batch, before committing
-and before pushing. During long-running work refresh at least every ten minutes
-when the tool permits; report a pending long-running command when it does not.
-A missed heartbeat triggers review, never automatic release.
+and before pushing. During long-running work, write an updated Heartbeat UTC
+timestamp into your row of agentmeeting.md's Active Agents table at least
+every ten minutes when the tool permits; report a pending long-running
+command when it does not. A missed heartbeat triggers review, never
+automatic release.
 
 **If an automated coordinator or watcher process is also running** (for
 example, a background service that monitors these files for stale
