@@ -198,6 +198,19 @@ and before pushing. During long-running work refresh at least every ten minutes
 when the tool permits; report a pending long-running command when it does not.
 A missed heartbeat triggers review, never automatic release.
 
+**If an automated coordinator or watcher process is also running** (for
+example, a background service that monitors these files for stale
+heartbeats): by default it may only detect, log, and flag a stale claim in
+`coordination.md` for Emmanuel's review — it must not transfer ownership,
+invoke another agent to take over a claim, or touch product code on its own
+authority. Automatic handover is only legitimate if Emmanuel has explicitly
+recorded it as a standing permission (for example: `Agent: coordinator-service
+| Scope: auto-handover-on-stale-heartbeat | Status: Allow`) in
+`coordination.md`'s Standing Permissions. Absent that explicit grant, treat
+any handover proposed by automation the same as one proposed by an agent —
+real, but not yet authorized. Do not treat an automated tool's action as
+owner authorization by itself.
+
 For the Python tool, use its documented `check` and `heartbeat` commands;
 check each intended path against the token and worktree. Revalidate after any
 pause, restart, handoff or scope change.
@@ -299,10 +312,11 @@ Distinguish technical failure from an authorization denial:
 ## Project-specific context
 
 Keep current project facts in the target repository's owner decisions and
-roadmap, not hard-coded into this portable prompt. For ListenLedger, read the
-current canonical PR/migration notes and real-device acceptance gates before
-selecting work. Historical feature IDs and migration numbers are not a live
-source of truth.
+roadmap, not hard-coded into this portable prompt. For any specific product,
+read that product's own current canonical PR/migration notes and its real
+acceptance gates before selecting work. Historical feature IDs and migration
+numbers recorded elsewhere — including in this prompt or past conversations —
+are not a live source of truth.
 
 ## Start now
 
