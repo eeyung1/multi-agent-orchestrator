@@ -8,13 +8,14 @@ import (
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
 func main() {
-	var workspace, agent, role, session, feature, scope, token, state, nextSession, base string
-	var heartbeat, release, createWorktree, start bool
+	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validate string
+	var heartbeat, release, createWorktree, start, complete bool
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
 	flag.StringVar(&role, "role", "coding-agent", "agent role")
@@ -29,10 +30,20 @@ func main() {
 	flag.BoolVar(&createWorktree, "create-worktree", false, "create isolated feature worktree")
 	flag.StringVar(&base, "base", "main", "base ref for worktree")
 	flag.BoolVar(&start, "start", false, "run activation, claim, worktree and WORKING transition")
+	flag.BoolVar(&complete, "complete", false, "validate and complete an agent session")
+	flag.StringVar(&worktreePath, "worktree", "", "agent worktree path")
+	flag.StringVar(&validate, "validate", "", "validation command for completion")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if complete {
+		result,err:=completion.Complete(completion.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Token:token,Feature:feature,Validate:validate})
+		if err!=nil { fail(err) }
+		fmt.Printf("state=%s validation=%s\n",result.State,result.Output)
+		return
+	}
 
 	if start {
 		result,err:=workflowrun.Start(workflowrun.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base})
