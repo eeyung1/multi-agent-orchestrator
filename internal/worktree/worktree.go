@@ -29,3 +29,18 @@ func Create(primary, feature, base string) (Result,error) {
 	if err!=nil { return Result{},fmt.Errorf("git worktree add: %w: %s",err,strings.TrimSpace(string(out))) }
 	return Result{Branch:branch,Path:path},nil
 }
+
+
+func Remove(primary string, result Result) error {
+	if strings.TrimSpace(result.Path)=="" || strings.TrimSpace(result.Branch)=="" { return fmt.Errorf("worktree path and branch are required") }
+	parent:=filepath.Join(primary,".agent-worktrees")
+	rel,err:=filepath.Rel(parent,result.Path); if err!=nil{return err}
+	if rel=="." || rel==".." || strings.HasPrefix(rel,".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("refusing to remove worktree outside managed directory: %s",result.Path)
+	}
+	cmd:=exec.Command("git","-C",primary,"worktree","remove","--force",result.Path)
+	if out,err:=cmd.CombinedOutput();err!=nil{return fmt.Errorf("git worktree remove: %w: %s",err,strings.TrimSpace(string(out)))}
+	cmd=exec.Command("git","-C",primary,"branch","-D",result.Branch)
+	if out,err:=cmd.CombinedOutput();err!=nil{return fmt.Errorf("git branch delete: %w: %s",err,strings.TrimSpace(string(out)))}
+	return nil
+}

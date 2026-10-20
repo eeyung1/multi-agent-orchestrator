@@ -47,10 +47,21 @@ func Start(req Request) (Result, error) {
 	}
 
 	if err := coordination.UpdateAssignment(primary, active.SessionID, req.Feature, wt.Branch+" @ "+wt.Path, req.Token); err != nil {
-		return Result{}, fmt.Errorf("record assignment: %w", err)
+		return rollbackStart(primary, active.SessionID, req.Token, wt, fmt.Errorf("record assignment: %w",err))
 	}
 	if err := coordination.Transition(primary, active.SessionID, "WORKING"); err != nil {
-		return Result{}, fmt.Errorf("working transition: %w", err)
+		return rollbackStart(primary, active.SessionID, req.Token, wt, fmt.Errorf("working transition: %w",err))
 	}
 	return Result{SessionID:active.SessionID, State:"WORKING", Branch:wt.Branch, Worktree:wt.Path, Claim:req.Token}, nil
+}
+
+
+func rollbackStart(primary, sessionID, token string, wt worktree.Result, cause error) (Result,error) {
+	cleanupErr:=worktree.Remove(primary,wt)
+	releaseErr:=coordination.ReleaseClaim(primary,sessionID,token)
+	transitionErr:=coordination.Transition(primary,sessionID,"BLOCKED")
+	if cleanupErr!=nil || releaseErr!=nil || transitionErr!=nil {
+		return Result{SessionID:sessionID,State:"BLOCKED"},fmt.Errorf("%w; rollback worktree=%v release=%v transition=%v",cause,cleanupErr,releaseErr,transitionErr)
+	}
+	return Result{SessionID:sessionID,State:"BLOCKED"},cause
 }
