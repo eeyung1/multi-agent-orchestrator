@@ -281,3 +281,19 @@ pytest -q
 Tests use deterministic chat mocks, exercise actual LangGraph fan-out/fan-in, and never call a live model. Generated code quality and live provider availability require separate testing.
 
 Integration references: [LangChain provider integrations](https://reference.langchain.com/python/integrations/overview), [Ollama](https://reference.langchain.com/python/langchain-ollama/langchain_ollama).
+
+
+### Controlled Go workflow
+
+Phase 4 composes the runtime primitives into one guarded start operation:
+
+```bash
+go run ./cmd/orchestrator --start --workspace /path/to/project --agent Codex --role backend --feature feature-name --scope internal/feature --token claim-token --base main
+```
+
+The command activates and registers the agent, acquires its exclusive scope,
+creates an isolated feature worktree, records the branch/worktree and claim in
+`agentmeeting.md`, then transitions the session to `WORKING`. Claim or
+worktree failure moves the session to `BLOCKED`; worktree failure also
+releases the acquired claim. Autonomous implementation and validation remain
+separate later phases.
