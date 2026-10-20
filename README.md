@@ -24,6 +24,21 @@ scope. The prompt is currently a protocol document; hard enforcement should
 live in orchestration/claim tooling rather than relying solely on model
 compliance.
 
+### Go activation runtime
+
+The first runtime slice is available through the Go CLI:
+
+```bash
+go run ./cmd/orchestrator --workspace /path/to/project --agent Codex --role backend
+```
+
+It resolves the target Git repository, acquires the shared bootstrap lock,
+creates only missing coordination ledgers, preserves existing history,
+registers a unique session in `agentmeeting.md`, and releases the lock. This
+phase intentionally stops at `ACTIVE`: task claims, worktree creation,
+heartbeats, handoff/release and agent execution remain subsequent runtime
+phases.
+
 
 ## Setup
 
