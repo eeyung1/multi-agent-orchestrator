@@ -48,7 +48,8 @@ func ClaimScope(primary string, claim Claim) error {
 		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
 		data, err := os.ReadFile(path)
 		if err != nil { return err }
-		for _, line := range strings.Split(string(data), "\n") {
+		if !sessionExists(data,claim.SessionID) { return fmt.Errorf("agent session not found: %s",claim.SessionID) }
+		for _, line := range claimLines(data) {
 			if !strings.HasPrefix(line, "| ") { continue }
 			parts:=strings.Split(line,"|")
 			if len(parts)<7 { continue }
@@ -124,6 +125,7 @@ func ReleaseClaim(primary, sessionID, token string) error {
 	return withLock(primary,func() error {
 		path:=filepath.Join(primary,"multi-agent-orchestrator","agentmeeting.md")
 		data,err:=os.ReadFile(path); if err!=nil { return err }
+		if !sessionExists(data,nextSession) { return fmt.Errorf("handoff target session not found: %s",nextSession) }
 		lines:=strings.Split(string(data),"\n"); found:=false
 		for i,line:=range lines {
 			if strings.HasPrefix(line,"| "+token+" | "+sessionID+" |") {
@@ -178,4 +180,19 @@ func UpdateAssignment(primary, sessionID, feature, branchWorktree, claimRef stri
 		if !found { return fmt.Errorf("agent session not found: %s",sessionID) }
 		return atomicWrite(path,strings.Join(lines,"\n"))
 	})
+}
+
+
+func sessionExists(data []byte, sessionID string) bool {
+	for _,line:=range strings.Split(string(data),"\n") {
+		if strings.HasPrefix(line,"| "+sessionID+" |") { return true }
+	}
+	return false
+}
+
+func claimLines(data []byte) []string {
+	text:=string(data)
+	start:=strings.Index(text,"## Atomic Claims")
+	if start<0 { return nil }
+	return strings.Split(text[start:],"\n")
 }
