@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 )
 
 const (
@@ -31,15 +33,8 @@ func Activate(workspace, agent, role string) (Result, error) {
 	if err != nil || !info.IsDir() {
 		return Result{}, fmt.Errorf("workspace is not a directory: %s", root)
 	}
-	primary, err := primaryRoot(root)
-	if err != nil {
-		return Result{}, err
-	}
-
-	coord := filepath.Join(primary, coordinationDir)
-	if err := os.MkdirAll(coord, 0o755); err != nil {
-		return Result{}, err
-	}
+	primary, err := repository.Primary(root)
+	if err != nil { return Result{}, err }
 
 	lock := filepath.Join(primary, lockDir)
 	if err := os.Mkdir(lock, 0o700); err != nil {
@@ -48,7 +43,10 @@ func Activate(workspace, agent, role string) (Result, error) {
 		}
 		return Result{}, err
 	}
-	defer os.RemoveAll(lock)
+	defer os.Remove(lock)
+
+	coord := filepath.Join(primary, coordinationDir)
+	if err := os.MkdirAll(coord, 0o755); err != nil { return Result{}, err }
 
 	session, err := sessionID(agent)
 	if err != nil {
@@ -72,20 +70,6 @@ func Activate(workspace, agent, role string) (Result, error) {
 	}
 
 	return Result{SessionID: session, State: "ACTIVE", CoordinationDir: coord}, nil
-}
-
-func primaryRoot(root string) (string, error) {
-	current := root
-	for {
-		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
-			return current, nil
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", fmt.Errorf("no git repository found from %s", root)
-		}
-		current = parent
-	}
 }
 
 func sessionID(agent string) (string, error) {
