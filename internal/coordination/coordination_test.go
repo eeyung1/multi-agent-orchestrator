@@ -30,7 +30,9 @@ func TestHeartbeatUpdatesAgent(t *testing.T) {
 	root:=setup(t)
 	if err:=Heartbeat(root,"agent-1"); err!=nil { t.Fatal(err) }
 	data,_:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
-	if strings.Contains(string(data),"| old |") { t.Fatal("heartbeat was not updated") }
+	for _,line:=range strings.Split(string(data),"\n") {
+		if strings.HasPrefix(line,"| agent-1 |") && strings.Contains(line,"| old |") { t.Fatal("agent-1 heartbeat was not updated") }
+	}
 }
 
 func TestTransitionUpdatesState(t *testing.T) {
