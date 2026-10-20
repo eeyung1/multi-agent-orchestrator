@@ -2,6 +2,7 @@ package activation
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,9 +10,7 @@ import (
 
 func TestActivateBootstrapsAndRegisters(t *testing.T) {
 	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGit(t, root)
 
 	result, err := Activate(root, "Codex", "backend")
 	if err != nil {
@@ -43,9 +42,7 @@ func TestActivateBootstrapsAndRegisters(t *testing.T) {
 
 func TestActivatePreservesExistingLogs(t *testing.T) {
 	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGit(t, root)
 	coord := filepath.Join(root, coordinationDir)
 	if err := os.MkdirAll(coord, 0o755); err != nil {
 		t.Fatal(err)
@@ -70,14 +67,22 @@ func TestActivatePreservesExistingLogs(t *testing.T) {
 
 func TestActivateRefusesExistingBootstrapLock(t *testing.T) {
 	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGit(t, root)
 	if err := os.Mkdir(filepath.Join(root, lockDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := Activate(root, "Codex", "backend"); err == nil {
 		t.Fatal("expected activation to fail while bootstrap lock exists")
+	}
+}
+
+
+func initGit(t *testing.T, root string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "-b", "main")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
 	}
 }
