@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"time"
 )
 
@@ -30,7 +32,7 @@ func TestEndToEndRunCompletes(t *testing.T) {
 
 func TestExecutionFailureStopsBeforeValidation(t *testing.T) {
 	root:=repo(t)
-	got,err:=Run(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"fail",Scope:"result.txt",Token:"fail-token",Base:"main",AgentCommand:"exit 3",Validate:"touch should-not-exist",Timeout:time.Second})
+	got,err:=Run(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"fail",Scope:"result.txt",Token:"fail-token",Base:"main",AgentCommand:execution.Command{Program:"sh",Args:[]string{"-c","exit 3"}},Validate:execution.Command{Program:"touch",Args:[]string{"should-not-exist"}},Timeout:time.Second})
 	if err==nil || got.State!="BLOCKED" { t.Fatalf("got=%+v err=%v",got,err) }
 	if _,err:=os.Stat(filepath.Join(got.Worktree,"should-not-exist")); !os.IsNotExist(err) { t.Fatal("validation ran after execution failure") }
 }
