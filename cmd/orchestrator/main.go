@@ -17,7 +17,8 @@ import (
 )
 
 func main() {
-	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validate, agentCommand string
+	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram string
+	var validateArgs, agentArgs stringList
 	var heartbeat, release, createWorktree, start, complete, execute, fullRun bool
 	var timeout time.Duration
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
@@ -36,9 +37,11 @@ func main() {
 	flag.BoolVar(&start, "start", false, "run activation, claim, worktree and WORKING transition")
 	flag.BoolVar(&complete, "complete", false, "validate and complete an agent session")
 	flag.StringVar(&worktreePath, "worktree", "", "agent worktree path")
-	flag.StringVar(&validate, "validate", "", "validation command for completion")
+	flag.StringVar(&validateProgram, "validate-program", "", "validation executable")
+	flag.Var(&validateArgs, "validate-arg", "validation argument; repeat for multiple arguments")
 	flag.BoolVar(&execute, "execute", false, "run an implementation agent command inside its worktree")
-	flag.StringVar(&agentCommand, "agent-command", "", "implementation agent command")
+	flag.StringVar(&agentProgram, "agent-program", "", "implementation agent executable")
+	flag.Var(&agentArgs, "agent-arg", "implementation argument; repeat for multiple arguments")
 	flag.DurationVar(&timeout, "timeout", 30*time.Minute, "agent execution timeout")
 	flag.BoolVar(&fullRun, "run", false, "run start, execution, validation and completion end-to-end")
 	flag.Parse()
@@ -47,21 +50,21 @@ func main() {
 	if err != nil { fail(err) }
 
 	if fullRun {
-		result,err:=runflow.Run(runflow.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base,AgentCommand:agentCommand,Validate:validate,Timeout:timeout})
+		result,err:=runflow.Run(runflow.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base,AgentCommand:execution.Command{Program:agentProgram,Args:agentArgs},Validate:execution.Command{Program:validateProgram,Args:validateArgs},Timeout:timeout})
 		if err!=nil { fail(err) }
 		fmt.Printf("agent=%s state=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Branch,result.Worktree)
 		return
 	}
 
 	if execute {
-		result,err:=execution.Run(execution.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Command:agentCommand,Timeout:timeout})
+		result,err:=execution.Run(execution.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Command:execution.Command{Program:agentProgram,Args:agentArgs},Timeout:timeout})
 		if err!=nil { fail(err) }
 		fmt.Printf("exit=%d output=%s\n",result.ExitCode,result.Output)
 		return
 	}
 
 	if complete {
-		result,err:=completion.Complete(completion.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Token:token,Feature:feature,Validate:validate})
+		result,err:=completion.Complete(completion.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Token:token,Feature:feature,Validate:execution.Command{Program:validateProgram,Args:validateArgs}})
 		if err!=nil { fail(err) }
 		fmt.Printf("state=%s validation=%s\n",result.State,result.Output)
 		return
@@ -118,3 +121,7 @@ func fail(err error) {
 	fmt.Fprintln(os.Stderr, "orchestrator:",err)
 	os.Exit(1)
 }
+
+type stringList []string
+func (s *stringList) String() string{return fmt.Sprint([]string(*s))}
+func (s *stringList) Set(v string) error{*s=append(*s,v);return nil}
