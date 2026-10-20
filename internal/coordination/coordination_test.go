@@ -12,7 +12,7 @@ func setup(t *testing.T) string {
 	root:=t.TempDir()
 	dir:=filepath.Join(root,"multi-agent-orchestrator")
 	if err:=os.MkdirAll(dir,0o755); err!=nil { t.Fatal(err) }
-	body:="# Agent Meeting\n\n## Active Agents\n\n| Agent/session ID | Role | Status | Heartbeat UTC | Feature | Branch/worktree | Claim reference |\n| --- | --- | --- | --- | --- | --- | --- |\n| agent-1 | backend | ACTIVE | old | activation | - | bootstrap |\n"
+	body:="# Agent Meeting\n\n## Active Agents\n\n| Agent/session ID | Role | Status | Heartbeat UTC | Feature | Branch/worktree | Claim reference |\n| --- | --- | --- | --- | --- | --- | --- |\n| agent-1 | backend | ACTIVE | old | activation | - | bootstrap |\n| agent-2 | reviewer | ACTIVE | old | activation | - | bootstrap |\n"
 	if err:=os.WriteFile(filepath.Join(dir,"agentmeeting.md"),[]byte(body),0o644); err!=nil { t.Fatal(err) }
 	return root
 }
@@ -65,4 +65,23 @@ func TestInvalidLifecycleTransitionRejected(t *testing.T) {
 	if err:=Transition(root,"agent-1","WORKING"); err!=nil { t.Fatal(err) }
 	if err:=Transition(root,"agent-1","COMPLETE"); err!=nil { t.Fatal(err) }
 	if err:=Transition(root,"agent-1","WORKING"); err==nil { t.Fatal("COMPLETE -> WORKING must be rejected") }
+}
+
+
+func TestClaimRequiresRegisteredSession(t *testing.T) {
+	root:=setup(t)
+	err:=ClaimScope(root,Claim{SessionID:"ghost",Feature:"F",Scope:"ghost.txt",Token:"ghost-token"})
+	if err==nil || !strings.Contains(err.Error(),"agent session not found") { t.Fatalf("err=%v",err) }
+}
+
+func TestHandoffRequiresRegisteredTarget(t *testing.T) {
+	root:=setup(t)
+	if err:=ClaimScope(root,Claim{SessionID:"agent-1",Feature:"F",Scope:"x.go",Token:"x"}); err!=nil { t.Fatal(err) }
+	err:=Handoff(root,"agent-1","x","ghost")
+	if err==nil || !strings.Contains(err.Error(),"handoff target session not found") { t.Fatalf("err=%v",err) }
+}
+
+func TestActiveAgentFieldsDoNotConflictWithClaimScopes(t *testing.T) {
+	root:=setup(t)
+	if err:=ClaimScope(root,Claim{SessionID:"agent-1",Feature:"F",Scope:"old",Token:"x"}); err!=nil { t.Fatalf("active-agent heartbeat must not be parsed as a claim scope: %v",err) }
 }
