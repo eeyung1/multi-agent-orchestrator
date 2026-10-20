@@ -307,8 +307,7 @@ gates. Push to the feature branch and check CI for the exact current head SHA.
 A previous commit's green result does not cover new commits. If no CI is
 configured, state that explicitly and report local validation separately.
 
-Follow the project's merge authority. For ORCHESTRATOR's projects, ORCHESTRATOR alone
-merges unless he explicitly delegates that action. Otherwise do not infer
+Follow the project's merge authority. ORCHESTRATOR is the merge authority unless that authority is explicitly delegated. Otherwise do not infer
 merge rights from write access. Keep the PR and handoff ready for the
 authorized integrator; do not block independent eligible work while awaiting
 integration.

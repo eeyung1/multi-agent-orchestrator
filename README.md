@@ -20,9 +20,7 @@ Existing files and coordination mechanisms are joined rather than overwritten.
 The lifecycle is `ACTIVATING → ACTIVE → WORKING → COMPLETE`, with `BLOCKED`
 and `HANDOFF` recorded explicitly. Product edits begin only after the agent
 has reconstructed current state and acquired an eligible task and exclusive
-scope. The prompt is currently a protocol document; hard enforcement should
-live in orchestration/claim tooling rather than relying solely on model
-compliance.
+scope. The prompt defines the portable protocol, while the Go runtime enforces the core local coordination lifecycle: registration, locked claims, overlapping-scope rejection, isolated worktrees, lifecycle transitions, execution, validation-backed completion, handoff, rollback, and claim release.
 
 ### Go activation runtime
 
@@ -34,8 +32,7 @@ go run ./cmd/orchestrator --workspace /path/to/project --agent Codex --role back
 
 It resolves the target Git repository, acquires the shared bootstrap lock,
 creates only missing coordination ledgers, preserves existing history,
-registers a unique session in `agentmeeting.md`, and releases the lock. This first phase stops at `ACTIVE`. The next Go runtime slice adds locked
-scope claims, heartbeat refreshes and explicit lifecycle transitions. Examples:
+registers a unique session in `agentmeeting.md`, and releases the lock. Activation stops at `ACTIVE`; the same Go runtime also provides locked scope claims, heartbeat refreshes, lifecycle transitions, worktree isolation, execution, validation, handoff, rollback, and completion. Examples:
 
 ```bash
 go run ./cmd/orchestrator --workspace /path/to/project --session SESSION --feature F1 --scope internal/foo.go --token CLAIM_TOKEN
@@ -43,10 +40,7 @@ go run ./cmd/orchestrator --workspace /path/to/project --session SESSION --heart
 go run ./cmd/orchestrator --workspace /path/to/project --session SESSION --state WORKING
 ```
 
-Coordination writes use a shared atomic lock and rewrite the live ledger through
-a temporary file/rename operation. Conflicting exact scopes are rejected.
-Worktree creation, hierarchical/overlapping scope detection, claim release,
-handoff and agent execution remain subsequent runtime phases.
+Coordination writes use a shared atomic lock and rewrite the live ledger through a temporary file/rename operation. Exact and hierarchical overlapping scopes are rejected. Claims require registered sessions, handoffs require registered targets, and orchestrator-managed worktrees can be rolled back safely after startup failures.
 
 
 ## Setup
@@ -285,7 +279,7 @@ Integration references: [LangChain provider integrations](https://reference.lang
 
 ### Controlled Go workflow
 
-Phase 4 composes the runtime primitives into one guarded start operation:
+The controlled start flow composes the runtime primitives into one guarded start operation:
 
 ```bash
 go run ./cmd/orchestrator --start --workspace /path/to/project --agent Codex --role backend --feature feature-name --scope internal/feature --token claim-token --base main
@@ -295,13 +289,12 @@ The command activates and registers the agent, acquires its exclusive scope,
 creates an isolated feature worktree, records the branch/worktree and claim in
 `agentmeeting.md`, then transitions the session to `WORKING`. Claim or
 worktree failure moves the session to `BLOCKED`; worktree failure also
-releases the acquired claim. Autonomous implementation and validation remain
-separate later phases.
+releases the acquired claim. Implementation execution and validation-backed completion are available as explicit later gates or through the end-to-end `--run` command.
 
 
 ### Controlled completion
 
-Phase 5 closes the runtime lifecycle with validation-backed completion:
+Controlled completion closes the runtime lifecycle with validation-backed completion:
 
 ```bash
 go run ./cmd/orchestrator --complete --workspace /path/to/project --worktree /path/to/worktree --session SESSION --feature feature-name --token claim-token --validate-program go --validate-arg test --validate-arg ./...
@@ -316,11 +309,11 @@ the claim so another agent cannot take ownership of failing work prematurely.
 
 ### Controlled agent execution
 
-Phase 6 can launch an implementation command inside an already-owned agent
+Controlled execution can launch an implementation command inside an already-owned agent
 worktree without giving it access to a different working directory:
 
 ```bash
-go run ./cmd/orchestrator --execute --workspace /path/to/project --worktree /path/to/worktree --session SESSION --agent-command "your-agent-command" --timeout 30m
+go run ./cmd/orchestrator --execute --workspace /path/to/project --worktree /path/to/worktree --session SESSION --agent-program codex --agent-arg exec --agent-arg TASK --timeout 30m
 ```
 
 The child process receives `ORCHESTRATOR_SESSION_ID` and
@@ -333,7 +326,7 @@ complete. Validation-backed completion remains a separate gate.
 
 ### End-to-end Go run
 
-Phase 7 composes the guarded lifecycle into one command while preserving the
+The end-to-end run composes the guarded lifecycle into one command while preserving the
 individual gates:
 
 ```bash
@@ -349,3 +342,18 @@ retained. A claim is released only after successful validation and completion.
 ### Command execution safety
 
 Go runtime execution and validation use structured executable/argument vectors rather than shell command strings. The orchestrator does not invoke `sh -c` for user-supplied commands; shell metacharacters in arguments are therefore not interpreted by the orchestrator. Use repeated `--agent-arg` and `--validate-arg` flags to preserve argument boundaries.
+
+
+## Current milestone status — 2026-10-20
+
+The core local Go orchestration milestone is **complete**. The runtime now covers the intended guarded lifecycle:
+
+`activate → register → claim → isolated worktree → WORKING → execute → validate → resolution evidence → COMPLETE → release`
+
+Implemented and CI-covered capabilities include bootstrap locking, atomic coordination writes, registered-session claim integrity, hierarchical scope-conflict rejection, heartbeats and lifecycle transitions, handoff validation, isolated Git worktrees, guarded startup rollback, validation-backed completion, end-to-end execution, and structured executable/argument invocation without orchestrator-side shell interpretation.
+
+The repository CI runs both `go test ./...` and `python -m pytest -q`. The final core-security PR (#14) passed CI at exact head `f2039d78fbf9cc0fad065b99e63881ab4a894f06` before merge.
+
+### Boundary of this milestone
+
+This milestone provides **local/shared-filesystem orchestration**, not a distributed multi-host lock service or OS/container security sandbox. A child process runs with the operating-system permissions of the orchestrator process, and the coordination lock is filesystem-local. Distributed coordination, stronger process/environment isolation, richer durable structured state, and provider-specific executor adapters are future enhancements rather than blockers for the completed local-runtime milestone.
