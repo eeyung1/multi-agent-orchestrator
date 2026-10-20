@@ -2,6 +2,29 @@
 
 A planner delegates single-file tasks to parallel frontend/backend agents. Validation writes artifacts through workspace boundary checks and reports failures. Validation does not run generated tests or assess code correctness.
 
+## Universal agent activation protocol
+
+`agent_activation_prompt.md` defines the portable coordination protocol for
+coding agents joining a project. The authority role is **ORCHESTRATOR**, never a
+hard-coded person's name. On receipt of the prompt an agent enters
+`ACTIVATING` and immediately performs safe discovery and registration rather
+than waiting for another start signal.
+
+For a newly coordinated project, the first agent safely bootstraps the
+authoritative `multi-agent-orchestrator/` coordination directory under the
+exclusive bootstrap lock. The shared files are `agentmeeting.md` for live
+presence/claims/heartbeats, `coordination.md` for ORCHESTRATOR decisions and
+cross-agent control, and `resolution.md` for append-only completion evidence.
+Existing files and coordination mechanisms are joined rather than overwritten.
+
+The lifecycle is `ACTIVATING → ACTIVE → WORKING → COMPLETE`, with `BLOCKED`
+and `HANDOFF` recorded explicitly. Product edits begin only after the agent
+has reconstructed current state and acquired an eligible task and exclusive
+scope. The prompt is currently a protocol document; hard enforcement should
+live in orchestration/claim tooling rather than relying solely on model
+compliance.
+
+
 ## Setup
 
 ```bash
