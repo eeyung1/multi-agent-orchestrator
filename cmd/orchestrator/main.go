@@ -9,11 +9,12 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
+	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
 func main() {
 	var workspace, agent, role, session, feature, scope, token, state, nextSession, base string
-	var heartbeat, release, createWorktree bool
+	var heartbeat, release, createWorktree, start bool
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
 	flag.StringVar(&role, "role", "coding-agent", "agent role")
@@ -27,10 +28,18 @@ func main() {
 	flag.StringVar(&nextSession, "handoff", "", "transfer claim to another session")
 	flag.BoolVar(&createWorktree, "create-worktree", false, "create isolated feature worktree")
 	flag.StringVar(&base, "base", "main", "base ref for worktree")
+	flag.BoolVar(&start, "start", false, "run activation, claim, worktree and WORKING transition")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if start {
+		result,err:=workflowrun.Start(workflowrun.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base})
+		if err!=nil { fail(err) }
+		fmt.Printf("agent=%s state=%s claim=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Claim,result.Branch,result.Worktree)
+		return
+	}
 
 	if createWorktree {
 		result,err:=worktree.Create(primary,feature,base); if err!=nil { fail(err) }
