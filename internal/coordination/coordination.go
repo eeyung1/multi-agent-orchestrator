@@ -145,3 +145,24 @@ func scopesOverlap(a,b string) bool {
 	if a=="." || b=="." { return true }
 	return a==b || strings.HasPrefix(a,b+string(filepath.Separator)) || strings.HasPrefix(b,a+string(filepath.Separator))
 }
+
+
+func UpdateAssignment(primary, sessionID, feature, branchWorktree, claimRef string) error {
+	return withLock(primary,func() error {
+		path:=filepath.Join(primary,"multi-agent-orchestrator","agentmeeting.md")
+		data,err:=os.ReadFile(path); if err!=nil { return err }
+		lines:=strings.Split(string(data),"\n"); found:=false
+		for i,line:=range lines {
+			if strings.HasPrefix(line,"| "+sessionID+" |") {
+				parts:=strings.Split(line,"|")
+				if len(parts)<9 { return fmt.Errorf("malformed agent row for %s",sessionID) }
+				parts[5]=" "+feature+" "
+				parts[6]=" "+branchWorktree+" "
+				parts[7]=" "+claimRef+" "
+				lines[i]=strings.Join(parts,"|"); found=true; break
+			}
+		}
+		if !found { return fmt.Errorf("agent session not found: %s",sessionID) }
+		return atomicWrite(path,strings.Join(lines,"\n"))
+	})
+}
