@@ -57,3 +57,12 @@ func TestReleaseAndHandoff(t *testing.T) {
 	data,_=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
 	if strings.Contains(string(data),"| one | agent-2 |") { t.Fatal("claim not released") }
 }
+
+
+func TestInvalidLifecycleTransitionRejected(t *testing.T) {
+	root:=setup(t)
+	if err:=Transition(root,"agent-1","COMPLETE"); err==nil { t.Fatal("ACTIVE -> COMPLETE must be rejected") }
+	if err:=Transition(root,"agent-1","WORKING"); err!=nil { t.Fatal(err) }
+	if err:=Transition(root,"agent-1","COMPLETE"); err!=nil { t.Fatal(err) }
+	if err:=Transition(root,"agent-1","WORKING"); err==nil { t.Fatal("COMPLETE -> WORKING must be rejected") }
+}
