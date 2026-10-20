@@ -125,7 +125,6 @@ func ReleaseClaim(primary, sessionID, token string) error {
 	return withLock(primary,func() error {
 		path:=filepath.Join(primary,"multi-agent-orchestrator","agentmeeting.md")
 		data,err:=os.ReadFile(path); if err!=nil { return err }
-		if !sessionExists(data,nextSession) { return fmt.Errorf("handoff target session not found: %s",nextSession) }
 		lines:=strings.Split(string(data),"\n"); found:=false
 		for i,line:=range lines {
 			if strings.HasPrefix(line,"| "+token+" | "+sessionID+" |") {
@@ -142,6 +141,7 @@ func Handoff(primary, sessionID, token, nextSession string) error {
 	return withLock(primary,func() error {
 		path:=filepath.Join(primary,"multi-agent-orchestrator","agentmeeting.md")
 		data,err:=os.ReadFile(path); if err!=nil { return err }
+		if !sessionExists(data,nextSession) { return fmt.Errorf("handoff target session not found: %s",nextSession) }
 		lines:=strings.Split(string(data),"\n"); found:=false
 		for i,line:=range lines {
 			if strings.HasPrefix(line,"| "+token+" | "+sessionID+" |") {
