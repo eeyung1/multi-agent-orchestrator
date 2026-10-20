@@ -39,3 +39,21 @@ func TestTransitionUpdatesState(t *testing.T) {
 	data,_:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
 	if !strings.Contains(string(data),"| agent-1 | backend | WORKING |") { t.Fatalf("state not updated: %s",data) }
 }
+
+
+func TestClaimRejectsParentChildOverlap(t *testing.T) {
+	root:=setup(t)
+	if err:=ClaimScope(root,Claim{SessionID:"agent-1",Feature:"F1",Scope:"internal",Token:"one"}); err!=nil { t.Fatal(err) }
+	if err:=ClaimScope(root,Claim{SessionID:"agent-2",Feature:"F2",Scope:"internal/foo.go",Token:"two"}); err==nil { t.Fatal("expected overlapping scope rejection") }
+}
+
+func TestReleaseAndHandoff(t *testing.T) {
+	root:=setup(t)
+	if err:=ClaimScope(root,Claim{SessionID:"agent-1",Feature:"F1",Scope:"internal/foo.go",Token:"one"}); err!=nil { t.Fatal(err) }
+	if err:=Handoff(root,"agent-1","one","agent-2"); err!=nil { t.Fatal(err) }
+	data,_:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
+	if !strings.Contains(string(data),"| one | agent-2 |") { t.Fatal("handoff missing") }
+	if err:=ReleaseClaim(root,"agent-2","one"); err!=nil { t.Fatal(err) }
+	data,_=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
+	if strings.Contains(string(data),"| one | agent-2 |") { t.Fatal("claim not released") }
+}
