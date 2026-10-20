@@ -67,8 +67,13 @@ func ClaimScope(primary string, claim Claim) error {
 }
 
 func Transition(primary, sessionID, state string) error {
-	allowed := map[string]bool{"ACTIVE":true,"WORKING":true,"BLOCKED":true,"HANDOFF":true,"COMPLETE":true}
-	if !allowed[state] { return fmt.Errorf("invalid lifecycle state: %s", state) }
+	allowed := map[string]map[string]bool{
+		"ACTIVE":{"WORKING":true,"BLOCKED":true,"HANDOFF":true},
+		"WORKING":{"BLOCKED":true,"HANDOFF":true,"COMPLETE":true},
+		"BLOCKED":{"WORKING":true,"HANDOFF":true},
+		"HANDOFF":{"ACTIVE":true,"WORKING":true,"BLOCKED":true},
+		"COMPLETE":{},
+	}
 	return withLock(primary, func() error {
 		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
 		data, err := os.ReadFile(path)
@@ -79,6 +84,8 @@ func Transition(primary, sessionID, state string) error {
 			if strings.HasPrefix(line,"| "+sessionID+" |") {
 				parts:=strings.Split(line,"|")
 				if len(parts)<9 { return fmt.Errorf("malformed agent row for %s",sessionID) }
+				current:=strings.TrimSpace(parts[3])
+				if !allowed[current][state] { return fmt.Errorf("invalid lifecycle transition: %s -> %s",current,state) }
 				parts[3]=" "+state+" "
 				parts[4]=" "+time.Now().UTC().Format(time.RFC3339)+" "
 				lines[i]=strings.Join(parts,"|"); found=true; break
@@ -100,8 +107,14 @@ func withLock(primary string, fn func() error) error {
 }
 
 func atomicWrite(path, content string) error {
-	tmp:=path+".tmp"
-	if err:=os.WriteFile(tmp,[]byte(content),0o644); err!=nil { return err }
+	f,err:=os.CreateTemp(filepath.Dir(path),filepath.Base(path)+".tmp-*")
+	if err!=nil{return err}
+	tmp:=f.Name()
+	defer os.Remove(tmp)
+	if err:=f.Chmod(0o644);err!=nil{f.Close();return err}
+	if _,err:=f.WriteString(content);err!=nil{f.Close();return err}
+	if err:=f.Sync();err!=nil{f.Close();return err}
+	if err:=f.Close();err!=nil{return err}
 	return os.Rename(tmp,path)
 }
 
