@@ -34,10 +34,19 @@ go run ./cmd/orchestrator --workspace /path/to/project --agent Codex --role back
 
 It resolves the target Git repository, acquires the shared bootstrap lock,
 creates only missing coordination ledgers, preserves existing history,
-registers a unique session in `agentmeeting.md`, and releases the lock. This
-phase intentionally stops at `ACTIVE`: task claims, worktree creation,
-heartbeats, handoff/release and agent execution remain subsequent runtime
-phases.
+registers a unique session in `agentmeeting.md`, and releases the lock. This first phase stops at `ACTIVE`. The next Go runtime slice adds locked
+scope claims, heartbeat refreshes and explicit lifecycle transitions. Examples:
+
+```bash
+go run ./cmd/orchestrator --workspace /path/to/project --session SESSION --feature F1 --scope internal/foo.go --token CLAIM_TOKEN
+go run ./cmd/orchestrator --workspace /path/to/project --session SESSION --heartbeat
+go run ./cmd/orchestrator --workspace /path/to/project --session SESSION --state WORKING
+```
+
+Coordination writes use a shared atomic lock and rewrite the live ledger through
+a temporary file/rename operation. Conflicting exact scopes are rejected.
+Worktree creation, hierarchical/overlapping scope detection, claim release,
+handoff and agent execution remain subsequent runtime phases.
 
 
 ## Setup
