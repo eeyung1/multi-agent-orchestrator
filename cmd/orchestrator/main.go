@@ -8,11 +8,12 @@ import (
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 )
 
 func main() {
-	var workspace, agent, role, session, feature, scope, token, state string
-	var heartbeat bool
+	var workspace, agent, role, session, feature, scope, token, state, nextSession, base string
+	var heartbeat, release, createWorktree bool
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
 	flag.StringVar(&role, "role", "coding-agent", "agent role")
@@ -22,12 +23,29 @@ func main() {
 	flag.StringVar(&token, "token", "", "claim token")
 	flag.StringVar(&state, "state", "", "lifecycle state transition")
 	flag.BoolVar(&heartbeat, "heartbeat", false, "refresh session heartbeat")
+	flag.BoolVar(&release, "release", false, "release a claim")
+	flag.StringVar(&nextSession, "handoff", "", "transfer claim to another session")
+	flag.BoolVar(&createWorktree, "create-worktree", false, "create isolated feature worktree")
+	flag.StringVar(&base, "base", "main", "base ref for worktree")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
 
+	if createWorktree {
+		result,err:=worktree.Create(primary,feature,base); if err!=nil { fail(err) }
+		fmt.Printf("branch=%s worktree=%s\n",result.Branch,result.Path); return
+	}
+
 	if session != "" {
+		if release {
+			if err:=coordination.ReleaseClaim(primary,session,token); err!=nil { fail(err) }
+			fmt.Println("claim released"); return
+		}
+		if nextSession != "" {
+			if err:=coordination.Handoff(primary,session,token,nextSession); err!=nil { fail(err) }
+			fmt.Printf("handoff=%s\n",nextSession); return
+		}
 		if heartbeat {
 			if err:=coordination.Heartbeat(primary,session); err!=nil { fail(err) }
 			fmt.Println("heartbeat refreshed")
