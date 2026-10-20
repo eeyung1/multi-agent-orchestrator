@@ -297,3 +297,18 @@ creates an isolated feature worktree, records the branch/worktree and claim in
 worktree failure moves the session to `BLOCKED`; worktree failure also
 releases the acquired claim. Autonomous implementation and validation remain
 separate later phases.
+
+
+### Controlled completion
+
+Phase 5 closes the runtime lifecycle with validation-backed completion:
+
+```bash
+go run ./cmd/orchestrator --complete --workspace /path/to/project --worktree /path/to/worktree --session SESSION --feature feature-name --token claim-token --validate "go test ./..."
+```
+
+The orchestrator executes the requested validation inside the agent worktree and
+records the outcome in `resolution.md`. A successful validation transitions
+the session to `COMPLETE` and releases its claim. A failed validation records
+the evidence, transitions the session to `BLOCKED`, and deliberately retains
+the claim so another agent cannot take ownership of failing work prematurely.
