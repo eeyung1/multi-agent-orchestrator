@@ -2,11 +2,11 @@ package run
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
@@ -36,7 +36,7 @@ func Run(req Request)(Result,error) {
 	started,err:=workflow.Start(workflow.Request{Workspace:req.Workspace,Agent:req.Agent,Role:req.Role,Feature:req.Feature,Scope:req.Scope,Token:req.Token,Base:req.Base})
 	if err!=nil { return Result{SessionID:started.SessionID,State:started.State},fmt.Errorf("start: %w",err) }
 	result:=Result{SessionID:started.SessionID,State:started.State,Branch:started.Branch,Worktree:started.Worktree}
-	primary,err:=filepath.Abs(req.Workspace); if err!=nil { return result,err }
+	primary,err:=repository.Primary(req.Workspace); if err!=nil { return result,err }
 
 	executed,err:=execution.Run(execution.Request{Primary:primary,Worktree:started.Worktree,SessionID:started.SessionID,Command:req.AgentCommand,Timeout:req.Timeout})
 	result.ExecutionOutput=executed.Output
