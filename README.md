@@ -312,3 +312,20 @@ records the outcome in `resolution.md`. A successful validation transitions
 the session to `COMPLETE` and releases its claim. A failed validation records
 the evidence, transitions the session to `BLOCKED`, and deliberately retains
 the claim so another agent cannot take ownership of failing work prematurely.
+
+
+### Controlled agent execution
+
+Phase 6 can launch an implementation command inside an already-owned agent
+worktree without giving it access to a different working directory:
+
+```bash
+go run ./cmd/orchestrator --execute --workspace /path/to/project --worktree /path/to/worktree --session SESSION --agent-command "your-agent-command" --timeout 30m
+```
+
+The child process receives `ORCHESTRATOR_SESSION_ID` and
+`ORCHESTRATOR_WORKTREE`, runs with the assigned worktree as its working
+directory, and has a bounded timeout. Execution evidence is appended to
+`resolution.md`. A non-zero exit or timeout moves the session to `BLOCKED`;
+successful execution refreshes its heartbeat but does not mark the feature
+complete. Validation-backed completion remains a separate gate.
