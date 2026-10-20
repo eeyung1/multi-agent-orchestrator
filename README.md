@@ -304,7 +304,7 @@ separate later phases.
 Phase 5 closes the runtime lifecycle with validation-backed completion:
 
 ```bash
-go run ./cmd/orchestrator --complete --workspace /path/to/project --worktree /path/to/worktree --session SESSION --feature feature-name --token claim-token --validate "go test ./..."
+go run ./cmd/orchestrator --complete --workspace /path/to/project --worktree /path/to/worktree --session SESSION --feature feature-name --token claim-token --validate-program go --validate-arg test --validate-arg ./...
 ```
 
 The orchestrator executes the requested validation inside the agent worktree and
@@ -337,7 +337,7 @@ Phase 7 composes the guarded lifecycle into one command while preserving the
 individual gates:
 
 ```bash
-go run ./cmd/orchestrator --run --workspace /path/to/project --agent Codex --role backend --feature feature-name --scope internal/feature --token claim-token --base main --agent-command "your-agent-command" --validate "go test ./..." --timeout 30m
+go run ./cmd/orchestrator --run --workspace /path/to/project --agent Codex --role backend --feature feature-name --scope internal/feature --token claim-token --base main --agent-program codex --agent-arg exec --agent-arg TASK --validate-program go --validate-arg test --validate-arg ./... --timeout 30m
 ```
 
 The sequence is `activate → claim → isolated worktree → WORKING → execute →
@@ -345,3 +345,7 @@ validate → resolution evidence → COMPLETE → release claim`. Execution fail
 or timeout stops the run before validation and leaves the session `BLOCKED`.
 Validation failure likewise leaves the session `BLOCKED` with its claim
 retained. A claim is released only after successful validation and completion.
+
+### Command execution safety
+
+Go runtime execution and validation use structured executable/argument vectors rather than shell command strings. The orchestrator does not invoke `sh -c` for user-supplied commands; shell metacharacters in arguments are therefore not interpreted by the orchestrator. Use repeated `--agent-arg` and `--validate-arg` flags to preserve argument boundaries.

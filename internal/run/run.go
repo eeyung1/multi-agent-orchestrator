@@ -18,8 +18,8 @@ type Request struct {
 	Scope string
 	Token string
 	Base string
-	AgentCommand string
-	Validate string
+	AgentCommand execution.Command
+	Validate execution.Command
 	Timeout time.Duration
 }
 

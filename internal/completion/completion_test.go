@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 )
 
 func setup(t *testing.T)(string,string) {
@@ -21,7 +22,7 @@ func setup(t *testing.T)(string,string) {
 
 func TestCompleteValidatesRecordsAndReleases(t *testing.T) {
 	root,wt:=setup(t)
-	got,err:=Complete(Request{Primary:root,Worktree:wt,SessionID:"a1",Token:"t1",Feature:"F1",Validate:"printf ok"})
+	got,err:=Complete(Request{Primary:root,Worktree:wt,SessionID:"a1",Token:"t1",Feature:"F1",Validate:execution.Command{Program:"printf",Args:[]string{"ok"}}})
 	if err!=nil { t.Fatal(err) }
 	if got.State!="COMPLETE" { t.Fatalf("state=%s",got.State) }
 	m,_:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
@@ -32,7 +33,7 @@ func TestCompleteValidatesRecordsAndReleases(t *testing.T) {
 
 func TestFailureBlocksAndKeepsClaim(t *testing.T) {
 	root,wt:=setup(t)
-	got,err:=Complete(Request{Primary:root,Worktree:wt,SessionID:"a1",Token:"t1",Feature:"F1",Validate:"echo broken; exit 1"})
+	got,err:=Complete(Request{Primary:root,Worktree:wt,SessionID:"a1",Token:"t1",Feature:"F1",Validate:execution.Command{Program:"sh",Args:[]string{"-c","echo broken; exit 1"}}})
 	if err==nil || got.State!="BLOCKED" { t.Fatalf("got=%+v err=%v",got,err) }
 	m,_:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
 	if !strings.Contains(string(m),"| a1 | backend | BLOCKED |") || !strings.Contains(string(m),"| t1 | a1 | F1 |") { t.Fatalf("ledger=%s",m) }

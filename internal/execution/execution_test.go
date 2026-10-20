@@ -20,7 +20,7 @@ func setup(t *testing.T)(string,string) {
 
 func TestRunExecutesInsideWorktree(t *testing.T) {
 	root,wt:=setup(t)
-	got,err:=Run(Request{Primary:root,Worktree:wt,SessionID:"a1",Command:"printf $ORCHESTRATOR_SESSION_ID > result.txt",Timeout:time.Second})
+	got,err:=Run(Request{Primary:root,Worktree:wt,SessionID:"a1",Command:Command{Program:"sh",Args:[]string{"-c","printf $ORCHESTRATOR_SESSION_ID > result.txt"}},Timeout:time.Second})
 	if err!=nil { t.Fatal(err) }
 	if got.ExitCode!=0 { t.Fatalf("exit=%d",got.ExitCode) }
 	data,err:=os.ReadFile(filepath.Join(wt,"result.txt")); if err!=nil { t.Fatal(err) }
@@ -29,8 +29,10 @@ func TestRunExecutesInsideWorktree(t *testing.T) {
 
 func TestRunFailureBlocksSession(t *testing.T) {
 	root,wt:=setup(t)
-	_,err:=Run(Request{Primary:root,Worktree:wt,SessionID:"a1",Command:"echo failed; exit 7",Timeout:time.Second})
+	_,err:=Run(Request{Primary:root,Worktree:wt,SessionID:"a1",Command:Command{Program:"sh",Args:[]string{"-c","echo failed; exit 7"}},Timeout:time.Second})
 	if err==nil { t.Fatal("expected failure") }
 	data,_:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md"))
 	if !strings.Contains(string(data),"| a1 | backend | BLOCKED |") { t.Fatalf("ledger=%s",data) }
 }
+
+func TestMetacharactersAreLiteralArgs(t *testing.T){root,wt:=setup(t);marker:=filepath.Join(wt,"pwned");_,err:=Run(Request{Primary:root,Worktree:wt,SessionID:"a1",Command:Command{Program:"printf",Args:[]string{"%s","; touch "+marker}},Timeout:time.Second});if err!=nil{t.Fatal(err)};if _,err:=os.Stat(marker);!os.IsNotExist(err){t.Fatal("shell metacharacters were interpreted")}}

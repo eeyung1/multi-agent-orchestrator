@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"time"
 )
 
@@ -21,7 +23,7 @@ func git(t *testing.T,dir string,args ...string){t.Helper(); c:=exec.Command("gi
 
 func TestEndToEndRunCompletes(t *testing.T) {
 	root:=repo(t)
-	got,err:=Run(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"e2e",Scope:"result.txt",Token:"e2e-token",Base:"main",AgentCommand:"printf implemented > result.txt",Validate:"test \"$(cat result.txt)\" = implemented",Timeout:time.Second})
+	got,err:=Run(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"e2e",Scope:"result.txt",Token:"e2e-token",Base:"main",AgentCommand:execution.Command{Program:"sh",Args:[]string{"-c","printf implemented > result.txt"}},Validate:execution.Command{Program:"sh",Args:[]string{"-c","test \"$(cat result.txt)\" = implemented"}},Timeout:time.Second})
 	if err!=nil { t.Fatal(err) }
 	if got.State!="COMPLETE" { t.Fatalf("state=%s",got.State) }
 	data,err:=os.ReadFile(filepath.Join(root,"multi-agent-orchestrator","agentmeeting.md")); if err!=nil { t.Fatal(err) }
@@ -30,7 +32,7 @@ func TestEndToEndRunCompletes(t *testing.T) {
 
 func TestExecutionFailureStopsBeforeValidation(t *testing.T) {
 	root:=repo(t)
-	got,err:=Run(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"fail",Scope:"result.txt",Token:"fail-token",Base:"main",AgentCommand:"exit 3",Validate:"touch should-not-exist",Timeout:time.Second})
+	got,err:=Run(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"fail",Scope:"result.txt",Token:"fail-token",Base:"main",AgentCommand:execution.Command{Program:"sh",Args:[]string{"-c","exit 3"}},Validate:execution.Command{Program:"touch",Args:[]string{"should-not-exist"}},Timeout:time.Second})
 	if err==nil || got.State!="BLOCKED" { t.Fatalf("got=%+v err=%v",got,err) }
 	if _,err:=os.Stat(filepath.Join(got.Worktree,"should-not-exist")); !os.IsNotExist(err) { t.Fatal("validation ran after execution failure") }
 }
