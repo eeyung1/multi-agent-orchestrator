@@ -48,8 +48,14 @@ func ClaimScope(primary string, claim Claim) error {
 		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
 		data, err := os.ReadFile(path)
 		if err != nil { return err }
-		if strings.Contains(string(data), "| "+claim.Scope+" |") {
-			return fmt.Errorf("scope already claimed: %s", claim.Scope)
+		for _, line := range strings.Split(string(data), "\n") {
+			if !strings.HasPrefix(line, "| ") { continue }
+			parts:=strings.Split(line,"|")
+			if len(parts)<7 { continue }
+			existing:=strings.TrimSpace(parts[4])
+			if existing!="" && scopesOverlap(existing,claim.Scope) {
+				return fmt.Errorf("scope conflicts with existing claim: %s",existing)
+			}
 		}
 		entry := fmt.Sprintf("| %s | %s | %s | %s | %s |\n", claim.Token, claim.SessionID, claim.Feature, claim.Scope, time.Now().UTC().Format(time.RFC3339))
 		text := string(data)
@@ -97,4 +103,45 @@ func atomicWrite(path, content string) error {
 	tmp:=path+".tmp"
 	if err:=os.WriteFile(tmp,[]byte(content),0o644); err!=nil { return err }
 	return os.Rename(tmp,path)
+}
+
+
+func ReleaseClaim(primary, sessionID, token string) error {
+	if strings.TrimSpace(sessionID)=="" || strings.TrimSpace(token)=="" { return errors.New("session and token are required") }
+	return withLock(primary,func() error {
+		path:=filepath.Join(primary,"multi-agent-orchestrator","agentmeeting.md")
+		data,err:=os.ReadFile(path); if err!=nil { return err }
+		lines:=strings.Split(string(data),"\n"); found:=false
+		for i,line:=range lines {
+			if strings.HasPrefix(line,"| "+token+" | "+sessionID+" |") {
+				lines=append(lines[:i],lines[i+1:]...); found=true; break
+			}
+		}
+		if !found { return fmt.Errorf("claim not found for session/token") }
+		return atomicWrite(path,strings.Join(lines,"\n"))
+	})
+}
+
+func Handoff(primary, sessionID, token, nextSession string) error {
+	if strings.TrimSpace(nextSession)=="" { return errors.New("next session is required") }
+	return withLock(primary,func() error {
+		path:=filepath.Join(primary,"multi-agent-orchestrator","agentmeeting.md")
+		data,err:=os.ReadFile(path); if err!=nil { return err }
+		lines:=strings.Split(string(data),"\n"); found:=false
+		for i,line:=range lines {
+			if strings.HasPrefix(line,"| "+token+" | "+sessionID+" |") {
+				parts:=strings.Split(line,"|")
+				if len(parts)<7 { return fmt.Errorf("malformed claim row") }
+				parts[2]=" "+nextSession+" "; lines[i]=strings.Join(parts,"|"); found=true; break
+			}
+		}
+		if !found { return fmt.Errorf("claim not found for handoff") }
+		return atomicWrite(path,strings.Join(lines,"\n"))
+	})
+}
+
+func scopesOverlap(a,b string) bool {
+	a=filepath.Clean(strings.TrimSpace(a)); b=filepath.Clean(strings.TrimSpace(b))
+	if a=="." || b=="." { return true }
+	return a==b || strings.HasPrefix(a,b+string(filepath.Separator)) || strings.HasPrefix(b,a+string(filepath.Separator))
 }
