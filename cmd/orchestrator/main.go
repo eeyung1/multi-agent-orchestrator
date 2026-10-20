@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
 func main() {
-	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validate string
-	var heartbeat, release, createWorktree, start, complete bool
+	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validate, agentCommand string
+	var heartbeat, release, createWorktree, start, complete, execute bool
+	var timeout time.Duration
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
 	flag.StringVar(&role, "role", "coding-agent", "agent role")
@@ -33,10 +36,20 @@ func main() {
 	flag.BoolVar(&complete, "complete", false, "validate and complete an agent session")
 	flag.StringVar(&worktreePath, "worktree", "", "agent worktree path")
 	flag.StringVar(&validate, "validate", "", "validation command for completion")
+	flag.BoolVar(&execute, "execute", false, "run an implementation agent command inside its worktree")
+	flag.StringVar(&agentCommand, "agent-command", "", "implementation agent command")
+	flag.DurationVar(&timeout, "timeout", 30*time.Minute, "agent execution timeout")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if execute {
+		result,err:=execution.Run(execution.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Command:agentCommand,Timeout:timeout})
+		if err!=nil { fail(err) }
+		fmt.Printf("exit=%d output=%s\n",result.ExitCode,result.Output)
+		return
+	}
 
 	if complete {
 		result,err:=completion.Complete(completion.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Token:token,Feature:feature,Validate:validate})
