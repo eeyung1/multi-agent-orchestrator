@@ -329,3 +329,19 @@ directory, and has a bounded timeout. Execution evidence is appended to
 `resolution.md`. A non-zero exit or timeout moves the session to `BLOCKED`;
 successful execution refreshes its heartbeat but does not mark the feature
 complete. Validation-backed completion remains a separate gate.
+
+
+### End-to-end Go run
+
+Phase 7 composes the guarded lifecycle into one command while preserving the
+individual gates:
+
+```bash
+go run ./cmd/orchestrator --run --workspace /path/to/project --agent Codex --role backend --feature feature-name --scope internal/feature --token claim-token --base main --agent-command "your-agent-command" --validate "go test ./..." --timeout 30m
+```
+
+The sequence is `activate → claim → isolated worktree → WORKING → execute →
+validate → resolution evidence → COMPLETE → release claim`. Execution failure
+or timeout stops the run before validation and leaves the session `BLOCKED`.
+Validation failure likewise leaves the session `BLOCKED` with its claim
+retained. A claim is released only after successful validation and completion.

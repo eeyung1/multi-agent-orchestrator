@@ -11,13 +11,14 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
+	runflow "github.com/eeyung1/multi-agent-orchestrator/internal/run"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
 func main() {
 	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validate, agentCommand string
-	var heartbeat, release, createWorktree, start, complete, execute bool
+	var heartbeat, release, createWorktree, start, complete, execute, fullRun bool
 	var timeout time.Duration
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
@@ -39,10 +40,18 @@ func main() {
 	flag.BoolVar(&execute, "execute", false, "run an implementation agent command inside its worktree")
 	flag.StringVar(&agentCommand, "agent-command", "", "implementation agent command")
 	flag.DurationVar(&timeout, "timeout", 30*time.Minute, "agent execution timeout")
+	flag.BoolVar(&fullRun, "run", false, "run start, execution, validation and completion end-to-end")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if fullRun {
+		result,err:=runflow.Run(runflow.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base,AgentCommand:agentCommand,Validate:validate,Timeout:timeout})
+		if err!=nil { fail(err) }
+		fmt.Printf("agent=%s state=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Branch,result.Worktree)
+		return
+	}
 
 	if execute {
 		result,err:=execution.Run(execution.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Command:agentCommand,Timeout:timeout})
