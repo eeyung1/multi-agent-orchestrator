@@ -11,16 +11,57 @@ The Python/LangGraph runner in this repository does not automatically load it,
 enforce claims, run project tests, or manage PRs. Do not launch that runner as
 part of activation unless the user specifically requests it.
 
+## Universal authority and activation contract
+
+**ORCHESTRATOR** is the universal project-level coordination authority. It is a
+role, not a person's name. It may be fulfilled by the repository owner, an
+authorized human integrator, or an explicitly authorized orchestration service.
+Agents must never infer the identity or permissions of ORCHESTRATOR from a
+hard-coded personal name.
+
+Every agent begins in **ACTIVATING** state. Receiving this prompt is itself the
+start signal: do not wait for another instruction before performing safe
+activation work. Before any product edit, the agent must:
+
+1. Discover the target repository, applicable instructions, primary checkout
+   and authoritative coordination location.
+2. Locate the established coordination/claim mechanism. If coordination is
+   missing, acquire the bootstrap lock defined below before creating it.
+3. Ensure `agentmeeting.md`, `coordination.md` and `resolution.md` exist
+   under the authoritative `multi-agent-orchestrator/` directory. Create only
+   missing files, under the coordination lock, and never overwrite history.
+4. Register a unique agent/session identity and immediately record presence in
+   `agentmeeting.md` with state, UTC heartbeat, intended role/work, and any
+   branch/worktree already known.
+5. Read active agents, claims, decisions, blockers, backlog and resolutions,
+   then reconstruct current project state before choosing work.
+6. Acquire an eligible task and exclusive scope, create/use an isolated branch
+   and worktree, and record that ownership before implementation.
+
+The standard lifecycle is **ACTIVATING → ACTIVE → WORKING → COMPLETE** with
+**BLOCKED** and **HANDOFF** as explicit intermediate states. Every transition
+must be recorded when the coordination mechanism permits it. An agent that
+cannot safely register remains ACTIVATING and must not modify product files.
+
+The three shared files have distinct responsibilities:
+
+- `agentmeeting.md`: live presence, lifecycle state, claims, heartbeats,
+  standups, backlog and permission requests.
+- `coordination.md`: ORCHESTRATOR decisions/permissions, conflicts, blockers,
+  scope changes, handovers and coordination-service actions.
+- `resolution.md`: append-only completed-work evidence, validation, commits,
+  PRs, release outcomes and unresolved gates.
+
 **One feature → one owner → one branch → one isolated worktree.**
 
 **Continuous logging is mandatory, not just at claim or release.** Every
 claim, heartbeat refresh, standup note, blocker, permission request, and
 completed unit of work gets written to its file in `multi-agent-orchestrator/`
 as it happens — claims, heartbeats and standups in `agentmeeting.md`,
-completed work and outcomes in `resolution.md`, anything needing Emmanuel's
+completed work and outcomes in `resolution.md`, anything needing ORCHESTRATOR's
 decision in `coordination.md`. Do not batch this up for the claim/release
 gate points only. If it isn't written there, it did not happen for
-coordination purposes — other agents and Emmanuel should never have to ask
+coordination purposes — other agents and ORCHESTRATOR should never have to ask
 what you're doing; the files should already say.
 
 ## 1. Discover the project before writing
@@ -223,9 +264,9 @@ automatic release.
 **If an automated coordinator or watcher process is also running** (for
 example, a background service that monitors these files for stale
 heartbeats): by default it may only detect, log, and flag a stale claim in
-`coordination.md` for Emmanuel's review — it must not transfer ownership,
+`coordination.md` for ORCHESTRATOR's review — it must not transfer ownership,
 invoke another agent to take over a claim, or touch product code on its own
-authority. Automatic handover is only legitimate if Emmanuel has explicitly
+authority. Automatic handover is only legitimate if ORCHESTRATOR has explicitly
 recorded it as a standing permission (for example: `Agent: coordinator-service
 | Scope: auto-handover-on-stale-heartbeat | Status: Allow`) in
 `coordination.md`'s Standing Permissions. Absent that explicit grant, treat
@@ -266,7 +307,7 @@ gates. Push to the feature branch and check CI for the exact current head SHA.
 A previous commit's green result does not cover new commits. If no CI is
 configured, state that explicitly and report local validation separately.
 
-Follow the project's merge authority. For Emmanuel's projects, Emmanuel alone
+Follow the project's merge authority. For ORCHESTRATOR's projects, ORCHESTRATOR alone
 merges unless he explicitly delegates that action. Otherwise do not infer
 merge rights from write access. Keep the PR and handoff ready for the
 authorized integrator; do not block independent eligible work while awaiting
