@@ -70,6 +70,11 @@ func Open(primary, repositoryID string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil { return nil, err }
 	s := &Store{primary: primary, dir: dir, path: filepath.Join(dir, stateFile)}
 	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
+		legacy, detail, legacyErr := legacyOperationalState(dir)
+		if legacyErr != nil { return nil, legacyErr }
+		if legacy {
+			return nil, fmt.Errorf("legacy operational state requires explicit migration before structured enrollment: %s", detail)
+		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		initial := Snapshot{
 			Authority: Authority{RepositoryID: repositoryID, Protocol: ProtocolVersion, Schema: SchemaVersion, Generation: 1, Enrollment: "FOUNDATION", EnrolledUTC: now},
@@ -140,6 +145,38 @@ func (s *Store) withLock(fn func() error) error {
 	}
 	defer os.Remove(lock)
 	return fn()
+}
+
+func legacyOperationalState(dir string) (bool, string, error) {
+	path := filepath.Join(dir, "agentmeeting.md")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) { return false, "", nil }
+	if err != nil { return false, "", err }
+
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") { continue }
+		cells := strings.Split(trimmed, "|")
+		if len(cells) < 3 { continue }
+
+		values := make([]string, 0, len(cells)-2)
+		for _, cell := range cells[1:len(cells)-1] {
+			values = append(values, strings.TrimSpace(cell))
+		}
+		if len(values) == 0 { continue }
+
+		first := strings.ToLower(values[0])
+		if first == "agent/session id" || first == "token" || strings.Trim(first, "-: ") == "" {
+			continue
+		}
+
+		// Session rows have seven cells; claim rows have five cells. Fail closed
+		// for either because both represent pre-structured operational ownership.
+		if len(values) == 7 || len(values) == 5 {
+			return true, "agentmeeting.md contains session/claim rows", nil
+		}
+	}
+	return false, "", nil
 }
 
 func CanonicalScope(primary, scope string) (string, error) {
