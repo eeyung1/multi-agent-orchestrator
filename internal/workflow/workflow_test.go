@@ -15,7 +15,7 @@ func TestStartRunsActivationClaimWorktreeAndWorkingTransition(t *testing.T) {
 	run(t,root,"git","init","-b","main")
 	run(t,root,"git","config","user.email","test@example.com")
 	run(t,root,"git","config","user.name","Test")
-	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\\n"),0o644); err!=nil { t.Fatal(err) }
+	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\n"),0o644); err!=nil { t.Fatal(err) }
 	run(t,root,"git","add","README.md"); run(t,root,"git","commit","-m","init")
 	if _,err:=enrollment.Enroll(root,enrollment.Native,"test-authority");err!=nil{t.Fatal(err)}
 
@@ -38,7 +38,7 @@ func TestStartRequiresAuthorityEnrollment(t *testing.T) {
 	run(t,root,"git","init","-b","main")
 	run(t,root,"git","config","user.email","test@example.com")
 	run(t,root,"git","config","user.name","Test")
-	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\\n"),0o644);err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\n"),0o644);err!=nil{t.Fatal(err)}
 	run(t,root,"git","add","README.md");run(t,root,"git","commit","-m","init")
 	if _,err:=Start(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"x",Scope:"internal/x",Token:"x",Base:"main"});err==nil{
 		t.Fatal("expected unenrolled start to fail closed")
