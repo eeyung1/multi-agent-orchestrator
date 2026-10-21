@@ -407,3 +407,32 @@ This is the Phase A/Phase B foundation only. Objective scheduling, automatic
 worker spawning, supervision/recovery, legacy third-party adapters, result/PR
 publication, distributed locking, and OS/container confinement remain later
 gates. See [docs/single-authority-orchestration.md](docs/single-authority-orchestration.md).
+
+
+## Authority enrollment preflight
+
+Managed `--start` and `--run` workflows now require explicit authority enrollment.
+Inspect a target repository first:
+
+```bash
+go run ./cmd/orchestrator --workspace /path/to/project --preflight
+```
+
+A clean repository reports `NATIVE`. Project-local agent claim tools or
+coordination directives are reported as `MIGRATION_REQUIRED`; discovery
+inspects files but does not execute unknown project tooling.
+
+A native repository can then be explicitly enrolled with decision provenance:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace /path/to/project \
+  --enroll \
+  --enrollment-disposition NATIVE \
+  --enrollment-provenance "owner approved ORCHESTRATOR authority"
+```
+
+Enrollment provenance is persisted in structured authority state. Repositories
+with unresolved findings cannot be falsely enrolled as native. Compatibility
+adapters and authorized legacy migration remain explicit later work; until
+reconciled, managed execution fails closed.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 )
 
@@ -28,6 +29,7 @@ type Result struct {
 }
 
 func Start(req Request) (Result, error) {
+	if err := enrollment.RequireEnrolled(req.Workspace); err != nil { return Result{}, err }
 	active, err := activation.Activate(req.Workspace, req.Agent, req.Role)
 	if err != nil { return Result{}, err }
 
