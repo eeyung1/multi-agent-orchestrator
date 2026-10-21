@@ -6,6 +6,101 @@ The Go ORCHESTRATOR is the coordination authority. It manages enrollment, sessio
 
 > Current boundary: this is a local orchestration system. It is not an OS/container security sandbox and its locks are not a distributed multi-machine lock service.
 
+## Start with the Planner
+
+Install Git, Go 1.24+, and your chosen coding-agent CLI. Keep one orchestrator
+checkout beside your target repositories, then verify it:
+
+```bash
+cd ~/Projects/multi-agent-orchestrator
+go test ./...
+```
+
+Planner = conversational/reasoning layer. Go ORCHESTRATOR = deterministic
+authority/enforcement. Workers = implementation agents. You = final
+review/integration/merge/deployment authority.
+
+### Configure providers and checks once
+
+Copy [examples/planner.json](examples/planner.json) to a trusted personal
+configuration file. The default location on Linux is
+`~/.config/orchestrator/planner.json`; `--config /absolute/path/planner.json`
+selects another file. Executable policy is not automatically loaded from the
+target project.
+
+Edit the example for your environment:
+
+- `planner`: your installed model's chat-completion endpoint/model, or a
+  proposal-only CLI adapter (`program`/`args`). For hosted credentials set
+  `api_key_env` to an exported variable's name; never put key values in JSON.
+- `workers`: capability names mapped to coding-agent executable/argument
+  vectors. The example uses Codex; any compatible CLI adapter can be substituted.
+  `{prompt}` is the complete assignment as one argument. Stdin also receives JSON.
+- `validators`: named executable/argument vectors for the project's real tests,
+  builds and checks. Replace Go examples for non-Go projects. The model can
+  select these names but cannot invent executable validation commands.
+- `required_validators`: checks that every task must run. Use this for mandatory
+  repository test/build gates; a proposal cannot omit these configured checks.
+- `allowed_scopes`: optional product-scope ceiling. `.` permits proposals across
+  the repository; actual tasks must claim bounded product paths, excluding
+  controller/Git metadata. You approve the concrete plan before execution.
+- `max_workers`, timeouts, heartbeat interval and `repair_attempts`: operational
+  limits. Repairs apply only to this controller's stopped child in the same
+  assignment, never an absent writer or expired heartbeat.
+
+The example model name is a placeholder. Configure your provider before running;
+there is no bundled live model or credential. Use trusted adapters: this runtime
+does not sandbox executables or strip their inherited environment.
+
+### Describe one objective
+
+```bash
+go run ./cmd/planner --workspace ~/Projects/my-project
+# Or select an alternate trusted configuration:
+go run ./cmd/planner --workspace ~/Projects/my-project --config /path/planner.json
+```
+
+The Planner checks enrollment first. For a native repository it asks for explicit
+ORCHESTRATOR enrollment authorization. Legacy ownership/conflicting instructions
+require reconciliation; the Planner will not delete tooling or bypass ambiguity.
+
+It asks what you want accomplished, inventories bounded project context, asks
+before sending that context to the configured provider, and displays proposed
+tasks, scopes, dependencies, acceptance and configured checks for confirmation.
+Empty input or silence never authorizes enrollment, execution or review.
+
+After confirmation, ORCHESTRATOR handles sessions, tokens, generations,
+worktrees, dispatch, heartbeats, bounded repair, validation and collection. You
+do not need to copy these values between commands. Workers commit local feature
+branches. This version does not automatically push them or create product PRs.
+
+### Resume and review
+
+Start the same command again and select the saved objective by its description.
+The controller reconstructs existing tasks/results/review state. It never
+relaunches assigned work just because a process disappeared. Unknown writers,
+exhausted repair, scope expansion, conflicting instructions and divergent
+prerequisite branches become concrete decision questions while independent
+eligible work continues.
+
+The consolidated report contains completed/incomplete tasks, branches, exact
+HEADs, validation evidence, local artifacts, blockers, limitations and next action.
+When all task results are collected it reaches `AWAITING_REVIEW`. The interactive
+human can record `approve`, `changes`, or `leave` for review status.
+
+**Approval never means merge or deployment.** Inspect the branches/evidence and
+perform integration through your normal authorized human workflow. The tests use
+fake providers/CLIs; a real multi-agent repository acceptance run is still required.
+
+Read [docs/planner-agent.md](docs/planner-agent.md) for provider contracts,
+recovery boundaries and limitations, including the current single scope per task.
+
+## Advanced / Manual ORCHESTRATOR commands
+
+The detailed installation, enrollment and individual lifecycle operations below
+are useful for diagnostics and advanced integrations. They are not required for
+the normal Planner workflow above.
+
 ## 1. Requirements
 
 Install:

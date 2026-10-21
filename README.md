@@ -1,9 +1,48 @@
-# LangGraph Multi-Agent Software Development Orchestrator
+# Planner Agent and Go Multi-Agent Orchestrator
 
 > **New user?** Start with [setup.md](setup.md). It covers installation, repository enrollment, legacy-authority reconciliation, multiple isolated agents, objective scheduling, result collection, and the human review gate from a clean machine.
 
 
-A planner delegates single-file tasks to parallel frontend/backend agents. Validation writes artifacts through workspace boundary checks and reports failures. Validation does not run generated tests or assess code correctness.
+Start the Planner, choose a repository, and describe the objective:
+
+```bash
+go run ./cmd/planner --workspace ~/Projects/my-project
+```
+
+Configure your planning provider, coding-agent CLI and project validators once
+using [setup.md](setup.md) and [examples/planner.json](examples/planner.json).
+The Planner inspects the repository, proposes a task/dependency plan and asks for
+explicit approval. The Go controller then handles eligible acquisition,
+sessions, claim tokens, assignment generations, isolated worktrees, concurrent
+workers, heartbeats, validation and result collection.
+
+| Role | Responsibility |
+| --- | --- |
+| Planner | Conversational/reasoning layer; recon, proposals, questions, consolidated report |
+| Go ORCHESTRATOR | Deterministic enrollment, admission, ownership, scheduling and enforcement |
+| Workers | Implement and commit assigned work in isolated worktrees |
+| User | Authorize genuine decisions, review results, retain integration/merge/deployment authority |
+
+Model output never grants ownership or permission. Validation selects configured
+checks rather than executing model-generated commands. Results include exact
+branch HEADs and evidence. `AWAITING_REVIEW` becomes `APPROVED` or
+`CHANGES_REQUESTED` only through a human decision; approval never merges or deploys.
+
+Restart the same command to select a saved objective. Existing assignments are
+not duplicated or stolen after heartbeat expiry. Independent pending work can
+continue while another task is blocked. Divergent prerequisite branches require
+human integration; the Planner does not merge them automatically.
+
+This remains local orchestration, not a sandbox. Live provider/multi-agent
+acceptance remains necessary. See [Planner architecture and limitations](docs/planner-agent.md).
+
+## Advanced / Manual interfaces
+
+The sections below document lower-level Go operations and the legacy Python
+scratch generator. Normal onboarding uses the Planner above. The Python graph
+does not participate in managed ownership and now refuses writes into Git
+repositories/managed worktrees. Its scratch validation only checks artifact
+writing, not generated application correctness.
 
 ## Universal agent activation protocol
 

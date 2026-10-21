@@ -18,6 +18,19 @@ class SafeWorkspace:
 
     def write_file(self, relative_path: str, content: str) -> str:
         target = self._resolve_safe_path(relative_path)
+        # The legacy graph may generate scratch artifacts, but it must never be
+        # a second execution/ownership path in a managed Git repository. Reading
+        # project context or using planning_node for proposals remains possible.
+        if any(part in {".git", ".agent-worktrees", "multi-agent-orchestrator"}
+               for part in Path(relative_path).parts):
+            raise PermissionError("Legacy generation cannot write coordination or Git metadata.")
+        for parent in (target.parent, *target.parent.parents):
+            if ((parent / ".git").exists()
+                    or (parent / "multi-agent-orchestrator" / "state.json").exists()):
+                raise PermissionError(
+                    "Legacy generation is scratch-only; use the Go Planner/ORCHESTRATOR "
+                    "for Git repositories and managed worktrees."
+                )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return str(target.relative_to(self.root))

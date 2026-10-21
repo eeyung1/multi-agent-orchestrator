@@ -1,0 +1,22 @@
+{
+  "planner": {
+    "endpoint": "http://localhost:11434/v1/chat/completions",
+    "model": "REPLACE_WITH_YOUR_INSTALLED_MODEL"
+  },
+  "workers": {
+    "coding": {
+      "program": "codex",
+      "args": ["exec", "{prompt}"]
+    }
+  },
+  "validators": {
+    "go-tests": {"program": "go", "args": ["test", "./..."]},
+    "diff-check": {"program": "git", "args": ["diff", "--check", "HEAD~1", "HEAD"]}
+  },
+  "required_validators": ["go-tests", "diff-check"],
+  "allowed_scopes": ["."],
+  "max_workers": 3,
+  "timeout_seconds": 1800,
+  "heartbeat_seconds": 30,
+  "repair_attempts": 1
+}

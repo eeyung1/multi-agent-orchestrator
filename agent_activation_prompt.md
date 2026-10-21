@@ -185,13 +185,12 @@ separate evidence fields. Define Done using the project's acceptance rules.
    SHA; if freshness cannot be established, disclose it. Never switch or reset
    the shared checkout's branch.
 3. Claim the task and its smallest complete file scope before editing.
-   Include implementation, tests, configuration and documentation. With the
-   existing Python tool, the claim form is:
-
-   `python3 PRIMARY/scripts/agent_coordination.py claim --repo WORKTREE --agent NAME --feature FEATURE --worktree WORKTREE --scope path/to/file`
-
-   Substitute real values and consult `--help` for additional flags. Retain
-   the returned token. In bootstrap mode the held exclusive lock is ownership.
+   Include implementation, tests, configuration and documentation. In a managed
+   Planner assignment, ORCHESTRATOR has already acquired ownership and supplied
+   the session, token, generation and isolated worktree. Do not activate a second
+   session, claim additional work, or invoke legacy ownership commands. Request
+   scope expansion or another assignment through the controller. In advanced
+   manual operation use the Go ORCHESTRATOR claim/scheduler interface only.
 4. Reserve migration versions through the claim mechanism before creating
    migration files. Check committed migrations, active reservations and all
    required dialects. Never infer a free number from only your own worktree.
@@ -232,9 +231,10 @@ any handover proposed by automation the same as one proposed by an agent —
 real, but not yet authorized. Do not treat an automated tool's action as
 owner authorization by itself.
 
-For the Python tool, use its documented `check` and `heartbeat` commands;
-check each intended path against the token and worktree. Revalidate after any
-pause, restart, handoff or scope change.
+Use the Go controller's ownership/generation checks and supervised heartbeats.
+Check each intended path against the assignment's scope and worktree. Revalidate
+after any pause, restart, handoff or scope change; a worker cannot authorize its
+own recovery or transfer.
 
 - Implement the smallest complete outcome and follow repository conventions.
 - Run meaningful tests/builds required by the change and project guidance.
@@ -265,10 +265,11 @@ gates. Push to the feature branch and check CI for the exact current head SHA.
 A previous commit's green result does not cover new commits. If no CI is
 configured, state that explicitly and report local validation separately.
 
-Follow the project's merge authority. ORCHESTRATOR is the merge authority unless that authority is explicitly delegated. Otherwise do not infer
-merge rights from write access. Keep the PR and handoff ready for the
-authorized integrator; do not block independent eligible work while awaiting
-integration.
+The user remains the final integration/merge/deployment authority. Planner
+proposals, ORCHESTRATOR task completion and review approval never invoke merge
+or deployment. Do not infer merge rights from write access. Keep the output/PR
+ready for the authorized human integrator; the controller may continue independent
+eligible work while awaiting integration.
 
 Before a merge that triggers deployment, the release owner must resolve:
 - pending schema migrations and their exact versions;

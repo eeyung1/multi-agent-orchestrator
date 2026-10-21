@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/locking"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,48 +44,63 @@ type Claim struct {
 }
 
 type Objective struct {
-	ID string `json:"id"`
-	Description string `json:"description"`
-	Status string `json:"status"`
+	ID           string `json:"id"`
+	Description  string `json:"description"`
+	Status       string `json:"status"`
+	PlanDigest   string `json:"plan_digest,omitempty"`
+	PolicyDigest string `json:"policy_digest,omitempty"`
+	ReconDigest  string `json:"recon_digest,omitempty"`
+	AuthorizedBy string `json:"authorized_by,omitempty"`
+	BaseSHA      string `json:"base_sha,omitempty"`
 }
 
 type Task struct {
-	ID string `json:"id"`
-	ObjectiveID string `json:"objective_id"`
-	Feature string `json:"feature"`
-	Scope string `json:"scope"`
-	DependsOn []string `json:"depends_on,omitempty"`
-	Priority int `json:"priority,omitempty"`
-	Status string `json:"status"`
-	Attempt uint64 `json:"attempt"`
-	AssignmentGeneration uint64 `json:"assignment_generation"`
-	Token string `json:"token,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	ResultID string `json:"result_id,omitempty"`
+	ID                   string   `json:"id"`
+	ObjectiveID          string   `json:"objective_id"`
+	Feature              string   `json:"feature"`
+	Scope                string   `json:"scope"`
+	DependsOn            []string `json:"depends_on,omitempty"`
+	Priority             int      `json:"priority,omitempty"`
+	Status               string   `json:"status"`
+	Attempt              uint64   `json:"attempt"`
+	AssignmentGeneration uint64   `json:"assignment_generation"`
+	Token                string   `json:"token,omitempty"`
+	SessionID            string   `json:"session_id,omitempty"`
+	ResultID             string   `json:"result_id,omitempty"`
+	Description          string   `json:"description,omitempty"`
+	AcceptanceCriteria   []string `json:"acceptance_criteria,omitempty"`
+	Validation           []string `json:"validation,omitempty"`
+	Capability           string   `json:"capability,omitempty"`
+	Branch               string   `json:"branch,omitempty"`
+	Worktree             string   `json:"worktree,omitempty"`
+	BaseSHA              string   `json:"base_sha,omitempty"`
+	Blocker              string   `json:"blocker,omitempty"`
+	ValidatedHead        string   `json:"validated_head,omitempty"`
+	ValidationEvidence   string   `json:"validation_evidence,omitempty"`
 }
 
 type ResultRecord struct {
-	ID string `json:"id"`
-	ObjectiveID string `json:"objective_id"`
-	TaskID string `json:"task_id"`
-	SessionID string `json:"session_id"`
-	AssignmentGeneration uint64 `json:"assignment_generation"`
-	Branch string `json:"branch"`
-	HeadSHA string `json:"head_sha"`
-	Validation string `json:"validation"`
-	Artifacts []string `json:"artifacts,omitempty"`
-	Blockers []string `json:"blockers,omitempty"`
-	Limitations []string `json:"limitations,omitempty"`
-	RecordedUTC string `json:"recorded_utc"`
+	ID                   string   `json:"id"`
+	ObjectiveID          string   `json:"objective_id"`
+	TaskID               string   `json:"task_id"`
+	SessionID            string   `json:"session_id"`
+	AssignmentGeneration uint64   `json:"assignment_generation"`
+	Branch               string   `json:"branch"`
+	HeadSHA              string   `json:"head_sha"`
+	Validation           string   `json:"validation"`
+	Artifacts            []string `json:"artifacts,omitempty"`
+	Blockers             []string `json:"blockers,omitempty"`
+	Limitations          []string `json:"limitations,omitempty"`
+	RecordedUTC          string   `json:"recorded_utc"`
 }
 
 type Review struct {
-	ObjectiveID string `json:"objective_id"`
-	Status string `json:"status"`
-	ResultIDs []string `json:"result_ids"`
-	Decision string `json:"decision,omitempty"`
-	DecidedBy string `json:"decided_by,omitempty"`
-	DecidedUTC string `json:"decided_utc,omitempty"`
+	ObjectiveID string   `json:"objective_id"`
+	Status      string   `json:"status"`
+	ResultIDs   []string `json:"result_ids"`
+	Decision    string   `json:"decision,omitempty"`
+	DecidedBy   string   `json:"decided_by,omitempty"`
+	DecidedUTC  string   `json:"decided_utc,omitempty"`
 }
 
 type Event struct {
@@ -96,14 +112,14 @@ type Event struct {
 }
 
 type Snapshot struct {
-	Authority Authority          `json:"authority"`
-	Sessions  map[string]Session `json:"sessions"`
-	Claims    map[string]Claim   `json:"claims"`
-	Objectives map[string]Objective `json:"objectives"`
-	Tasks map[string]Task `json:"tasks"`
-	Results map[string]ResultRecord `json:"results"`
-	Reviews map[string]Review `json:"reviews"`
-	Events    []Event            `json:"events"`
+	Authority  Authority               `json:"authority"`
+	Sessions   map[string]Session      `json:"sessions"`
+	Claims     map[string]Claim        `json:"claims"`
+	Objectives map[string]Objective    `json:"objectives"`
+	Tasks      map[string]Task         `json:"tasks"`
+	Results    map[string]ResultRecord `json:"results"`
+	Reviews    map[string]Review       `json:"reviews"`
+	Events     []Event                 `json:"events"`
 }
 
 type Store struct {
@@ -114,29 +130,43 @@ type Store struct {
 
 func Open(primary, repositoryID string) (*Store, error) {
 	primary, err := filepath.Abs(primary)
-	if err != nil { return nil, err }
-	if strings.TrimSpace(repositoryID) == "" { return nil, errors.New("repository identity is required") }
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(repositoryID) == "" {
+		return nil, errors.New("repository identity is required")
+	}
 	dir := filepath.Join(primary, "multi-agent-orchestrator")
-	if err := os.MkdirAll(dir, 0o755); err != nil { return nil, err }
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
 	s := &Store{primary: primary, dir: dir, path: filepath.Join(dir, stateFile)}
 	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
 		legacy, detail, legacyErr := legacyOperationalState(dir)
-		if legacyErr != nil { return nil, legacyErr }
+		if legacyErr != nil {
+			return nil, legacyErr
+		}
 		if legacy {
 			return nil, fmt.Errorf("legacy operational state requires explicit migration before structured enrollment: %s", detail)
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		initial := Snapshot{
 			Authority: Authority{RepositoryID: repositoryID, Protocol: ProtocolVersion, Schema: SchemaVersion, Generation: 1, Enrollment: "FOUNDATION", EnrolledUTC: now},
-			Sessions: map[string]Session{}, Claims: map[string]Claim{}, Objectives: map[string]Objective{}, Tasks: map[string]Task{}, Results: map[string]ResultRecord{}, Reviews: map[string]Review{}, Events: []Event{},
+			Sessions:  map[string]Session{}, Claims: map[string]Claim{}, Objectives: map[string]Objective{}, Tasks: map[string]Task{}, Results: map[string]ResultRecord{}, Reviews: map[string]Review{}, Events: []Event{},
 		}
 		if err := s.withLock(func() error {
-			if _, err := os.Stat(s.path); err == nil { return nil }
+			if _, err := os.Stat(s.path); err == nil {
+				return nil
+			}
 			return s.write(initial)
-		}); err != nil { return nil, err }
+		}); err != nil {
+			return nil, err
+		}
 	}
 	snap, err := s.Read()
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if snap.Authority.RepositoryID != repositoryID {
 		return nil, fmt.Errorf("state belongs to different repository: %s", snap.Authority.RepositoryID)
 	}
@@ -148,27 +178,47 @@ func Open(primary, repositoryID string) (*Store, error) {
 
 func (s *Store) Read() (Snapshot, error) {
 	data, err := os.ReadFile(s.path)
-	if err != nil { return Snapshot{}, err }
+	if err != nil {
+		return Snapshot{}, err
+	}
 	var snap Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil { return Snapshot{}, fmt.Errorf("decode orchestrator state: %w", err) }
-	if snap.Sessions == nil || snap.Claims == nil { return Snapshot{}, errors.New("malformed orchestrator state: missing maps") }
-	if snap.Objectives == nil { snap.Objectives = map[string]Objective{} }
-	if snap.Tasks == nil { snap.Tasks = map[string]Task{} }
-	if snap.Results == nil { snap.Results = map[string]ResultRecord{} }
-	if snap.Reviews == nil { snap.Reviews = map[string]Review{} }
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return Snapshot{}, fmt.Errorf("decode orchestrator state: %w", err)
+	}
+	if snap.Sessions == nil || snap.Claims == nil {
+		return Snapshot{}, errors.New("malformed orchestrator state: missing maps")
+	}
+	if snap.Objectives == nil {
+		snap.Objectives = map[string]Objective{}
+	}
+	if snap.Tasks == nil {
+		snap.Tasks = map[string]Task{}
+	}
+	if snap.Results == nil {
+		snap.Results = map[string]ResultRecord{}
+	}
+	if snap.Reviews == nil {
+		snap.Reviews = map[string]Review{}
+	}
 	return snap, nil
 }
 
 func (s *Store) Update(actor, operation string, fn func(*Snapshot) error) error {
-	if strings.TrimSpace(actor) == "" || strings.TrimSpace(operation) == "" { return errors.New("actor and operation are required") }
+	if strings.TrimSpace(actor) == "" || strings.TrimSpace(operation) == "" {
+		return errors.New("actor and operation are required")
+	}
 	return s.withLock(func() error {
 		snap, err := s.Read()
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		before := snap.Authority.Generation
-		if err := fn(&snap); err != nil { return err }
+		if err := fn(&snap); err != nil {
+			return err
+		}
 		snap.Authority.Generation = before + 1
 		snap.Events = append(snap.Events, Event{
-			ID: fmt.Sprintf("%d-%s", snap.Authority.Generation, operation),
+			ID:    fmt.Sprintf("%d-%s", snap.Authority.Generation, operation),
 			Actor: actor, Operation: operation, Generation: snap.Authority.Generation,
 			UTC: time.Now().UTC().Format(time.RFC3339),
 		})
@@ -178,46 +228,71 @@ func (s *Store) Update(actor, operation string, fn func(*Snapshot) error) error 
 
 func (s *Store) write(snap Snapshot) error {
 	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	data = append(data, '\n')
 	f, err := os.CreateTemp(s.dir, "state.json.tmp-*")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	tmp := f.Name()
 	defer os.Remove(tmp)
-	if err := f.Chmod(0o600); err != nil { f.Close(); return err }
-	if _, err := f.Write(data); err != nil { f.Close(); return err }
-	if err := f.Sync(); err != nil { f.Close(); return err }
-	if err := f.Close(); err != nil { return err }
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
 	return os.Rename(tmp, s.path)
 }
 
 func (s *Store) withLock(fn func() error) error {
 	lock := filepath.Join(s.primary, lockDir)
-	if err := os.Mkdir(lock, 0o700); err != nil {
-		if errors.Is(err, os.ErrExist) { return fmt.Errorf("structured state is locked: %s", lock) }
+	release, err := locking.Acquire(lock)
+	if err != nil {
 		return err
 	}
-	defer os.Remove(lock)
+	defer release()
 	return fn()
 }
 
 func legacyOperationalState(dir string) (bool, string, error) {
 	path := filepath.Join(dir, "agentmeeting.md")
 	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) { return false, "", nil }
-	if err != nil { return false, "", err }
+	if errors.Is(err, os.ErrNotExist) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
 
 	for _, line := range strings.Split(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "|") { continue }
+		if !strings.HasPrefix(trimmed, "|") {
+			continue
+		}
 		cells := strings.Split(trimmed, "|")
-		if len(cells) < 3 { continue }
+		if len(cells) < 3 {
+			continue
+		}
 
 		values := make([]string, 0, len(cells)-2)
-		for _, cell := range cells[1:len(cells)-1] {
+		for _, cell := range cells[1 : len(cells)-1] {
 			values = append(values, strings.TrimSpace(cell))
 		}
-		if len(values) == 0 { continue }
+		if len(values) == 0 {
+			continue
+		}
 
 		first := strings.ToLower(values[0])
 		if first == "agent/session id" || first == "token" || strings.Trim(first, "-: ") == "" {
@@ -235,14 +310,37 @@ func legacyOperationalState(dir string) (bool, string, error) {
 
 func CanonicalScope(primary, scope string) (string, error) {
 	scope = strings.TrimSpace(scope)
-	if scope == "" { return "", errors.New("scope is required") }
-	if filepath.IsAbs(scope) { return "", errors.New("scope must be repository-relative") }
+	if scope == "" {
+		return "", errors.New("scope is required")
+	}
+	if strings.ContainsAny(scope, "|\n\r\x00\\") {
+		return "", errors.New("scope contains unsupported characters")
+	}
+	if filepath.IsAbs(scope) {
+		return "", errors.New("scope must be repository-relative")
+	}
 	clean := filepath.Clean(scope)
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", errors.New("scope escapes repository")
 	}
-	if clean == "." { return ".", nil }
+	if clean == "." {
+		return ".", nil
+	}
 	joined := filepath.Join(primary, clean)
+	// Resolve every existing ancestor, including symlinks to paths that do not
+	// exist yet. Two lexical names must not describe different ownership scopes.
+	for current := joined; current != primary && current != filepath.Dir(current); current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("scope traverses a symlink")
+		}
+	}
 	rel, err := filepath.Rel(primary, joined)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("scope escapes repository")
