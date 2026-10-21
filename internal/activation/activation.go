@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"\n\t"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
 const (
 	coordinationDir = "multi-agent-orchestrator"
-	lockDir         = ".agent-bootstrap-lock"
+	lockDir         = ".agent-coordination-lock"
 )
 
 type Result struct {
