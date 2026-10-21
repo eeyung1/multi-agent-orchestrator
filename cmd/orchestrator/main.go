@@ -15,6 +15,7 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/review"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
 	runflow "github.com/eeyung1/multi-agent-orchestrator/internal/run"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
@@ -22,10 +23,12 @@ import (
 )
 
 func main() {
-	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram, planFile, completedTasks string
+	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram, planFile, completedTasks, objectiveID, taskID, resultBranch, validationEvidence, reviewDecision, reviewActor string
 	var validateArgs, agentArgs stringList
-	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll, acquireNext bool
+	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll, acquireNext, collectResult, reviewPackage bool
 	var timeout time.Duration
+	var assignmentGeneration uint64
+	var artifacts, blockers, limitations stringList
 	var enrollmentDisposition, enrollmentProvenance string
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
@@ -57,10 +60,33 @@ func main() {
 	flag.BoolVar(&acquireNext, "acquire-next", false, "acquire the next eligible task from an objective plan")
 	flag.StringVar(&planFile, "plan-file", "", "JSON objective plan file")
 	flag.StringVar(&completedTasks, "completed-tasks", "", "comma-separated completed task IDs")
+	flag.BoolVar(&collectResult, "collect-result", false, "collect a task result for objective review")
+	flag.BoolVar(&reviewPackage, "review-package", false, "print the objective review package")
+	flag.StringVar(&objectiveID, "objective-id", "", "objective identifier")
+	flag.StringVar(&taskID, "task-id", "", "task identifier")
+	flag.Uint64Var(&assignmentGeneration, "assignment-generation", 0, "task assignment generation")
+	flag.StringVar(&resultBranch, "result-branch", "", "result branch")
+	flag.StringVar(&validationEvidence, "validation-evidence", "", "validation evidence summary")
+	flag.Var(&artifacts, "artifact", "result artifact; repeat")
+	flag.Var(&blockers, "blocker", "result blocker; repeat")
+	flag.Var(&limitations, "limitation", "result limitation; repeat")
+	flag.StringVar(&reviewDecision, "review-decision", "", "review decision: APPROVED or CHANGES_REQUESTED")
+	flag.StringVar(&reviewActor, "review-actor", "", "human review authority")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if collectResult {
+		r,err:=review.Collect(review.ResultInput{Workspace:workspace,ObjectiveID:objectiveID,TaskID:taskID,SessionID:session,Token:token,Branch:resultBranch,Worktree:worktreePath,Validation:validationEvidence,AssignmentGeneration:assignmentGeneration,Artifacts:artifacts,Blockers:blockers,Limitations:limitations});if err!=nil{fail(err)}
+		b,_:=json.MarshalIndent(r,"","  ");fmt.Println(string(b));return
+	}
+	if reviewPackage {
+		p,err:=review.Build(workspace,objectiveID);if err!=nil{fail(err)};b,_:=json.MarshalIndent(p,"","  ");fmt.Println(string(b));return
+	}
+	if reviewDecision!="" {
+		if err:=review.Decide(workspace,objectiveID,reviewDecision,reviewActor);err!=nil{fail(err)};fmt.Printf("objective=%s review=%s\n",objectiveID,strings.ToUpper(reviewDecision));return
+	}
 
 	if acquireNext {
 		data,err:=os.ReadFile(planFile);if err!=nil{fail(err)}

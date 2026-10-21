@@ -60,6 +60,31 @@ type Task struct {
 	AssignmentGeneration uint64 `json:"assignment_generation"`
 	Token string `json:"token,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
+	ResultID string `json:"result_id,omitempty"`
+}
+
+type ResultRecord struct {
+	ID string `json:"id"`
+	ObjectiveID string `json:"objective_id"`
+	TaskID string `json:"task_id"`
+	SessionID string `json:"session_id"`
+	AssignmentGeneration uint64 `json:"assignment_generation"`
+	Branch string `json:"branch"`
+	HeadSHA string `json:"head_sha"`
+	Validation string `json:"validation"`
+	Artifacts []string `json:"artifacts,omitempty"`
+	Blockers []string `json:"blockers,omitempty"`
+	Limitations []string `json:"limitations,omitempty"`
+	RecordedUTC string `json:"recorded_utc"`
+}
+
+type Review struct {
+	ObjectiveID string `json:"objective_id"`
+	Status string `json:"status"`
+	ResultIDs []string `json:"result_ids"`
+	Decision string `json:"decision,omitempty"`
+	DecidedBy string `json:"decided_by,omitempty"`
+	DecidedUTC string `json:"decided_utc,omitempty"`
 }
 
 type Event struct {
@@ -76,6 +101,8 @@ type Snapshot struct {
 	Claims    map[string]Claim   `json:"claims"`
 	Objectives map[string]Objective `json:"objectives"`
 	Tasks map[string]Task `json:"tasks"`
+	Results map[string]ResultRecord `json:"results"`
+	Reviews map[string]Review `json:"reviews"`
 	Events    []Event            `json:"events"`
 }
 
@@ -101,7 +128,7 @@ func Open(primary, repositoryID string) (*Store, error) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		initial := Snapshot{
 			Authority: Authority{RepositoryID: repositoryID, Protocol: ProtocolVersion, Schema: SchemaVersion, Generation: 1, Enrollment: "FOUNDATION", EnrolledUTC: now},
-			Sessions: map[string]Session{}, Claims: map[string]Claim{}, Objectives: map[string]Objective{}, Tasks: map[string]Task{}, Events: []Event{},
+			Sessions: map[string]Session{}, Claims: map[string]Claim{}, Objectives: map[string]Objective{}, Tasks: map[string]Task{}, Results: map[string]ResultRecord{}, Reviews: map[string]Review{}, Events: []Event{},
 		}
 		if err := s.withLock(func() error {
 			if _, err := os.Stat(s.path); err == nil { return nil }
@@ -127,6 +154,8 @@ func (s *Store) Read() (Snapshot, error) {
 	if snap.Sessions == nil || snap.Claims == nil { return Snapshot{}, errors.New("malformed orchestrator state: missing maps") }
 	if snap.Objectives == nil { snap.Objectives = map[string]Objective{} }
 	if snap.Tasks == nil { snap.Tasks = map[string]Task{} }
+	if snap.Results == nil { snap.Results = map[string]ResultRecord{} }
+	if snap.Reviews == nil { snap.Reviews = map[string]Review{} }
 	return snap, nil
 }
 
