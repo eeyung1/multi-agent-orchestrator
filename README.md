@@ -9,18 +9,31 @@ Start the Planner, choose a repository, and describe the objective:
 go run ./cmd/planner --workspace ~/Projects/my-project
 ```
 
-Configure your planning provider, coding-agent CLI and project validators once
-using [setup.md](setup.md) and [examples/planner.json](examples/planner.json).
+Install/authenticate at least one supported CLI: Codex, Claude Code, or Gemini CLI.
+The Planner lists compatible installed agents and lets you select a Planner and
+one or more worker providers. Selecting a built-in requires no provider JSON.
+On first run it asks you to authorize mandatory project validators and offers to
+save that policy. See [setup.md](setup.md).
 The Planner inspects the repository, proposes a task/dependency plan and asks for
 explicit approval. The Go controller then handles eligible acquisition,
 sessions, claim tokens, assignment generations, isolated worktrees, concurrent
 workers, heartbeats, validation and result collection.
 
+```bash
+go run ./cmd/planner --list-providers
+go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers codex,gemini --max-workers 3
+```
+
+Detection inspects trusted absolute PATH entries without running agents or
+checking authentication. Project-local executables and relative PATH entries
+are excluded. Built-in argument vectors are defined in Go; model output cannot
+invent an executable. Custom providers remain an explicit advanced option.
+
 | Role | Responsibility |
 | --- | --- |
 | Planner | Conversational/reasoning layer; recon, proposals, questions, consolidated report |
 | Go ORCHESTRATOR | Deterministic enrollment, admission, ownership, scheduling and enforcement |
-| Workers | Implement and commit assigned work in isolated worktrees |
+| Workers | Implement assigned work in isolated worktrees; Go commits checked built-in worker output |
 | User | Authorize genuine decisions, review results, retain integration/merge/deployment authority |
 
 Model output never grants ownership or permission. Validation selects configured
@@ -28,7 +41,8 @@ checks rather than executing model-generated commands. Results include exact
 branch HEADs and evidence. `AWAITING_REVIEW` becomes `APPROVED` or
 `CHANGES_REQUESTED` only through a human decision; approval never merges or deploys.
 
-Restart the same command to select a saved objective. Existing assignments are
+Restart the same command to select a saved objective. Its provider selections
+are restored and the existing policy digest still applies. Existing assignments are
 not duplicated or stolen after heartbeat expiry. Independent pending work can
 continue while another task is blocked. Divergent prerequisite branches require
 human integration; the Planner does not merge them automatically.

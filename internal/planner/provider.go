@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/providers"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/recon"
 )
 
@@ -36,6 +38,7 @@ type Proposer interface {
 }
 
 type Provider struct {
+	Adapter   string   `json:"adapter,omitempty"`
 	Program   string   `json:"program,omitempty"`
 	Args      []string `json:"args,omitempty"`
 	Endpoint  string   `json:"endpoint,omitempty"`
@@ -59,6 +62,52 @@ func (p Provider) Propose(ctx context.Context, r Request) (Proposal, error) {
 	}
 	var output []byte
 	switch {
+	case p.Adapter != "":
+		if err := p.ValidateAdapter(r.Recon.Workspace); err != nil {
+			return Proposal{}, err
+		}
+		dir, err := os.MkdirTemp("", "orchestrator-proposal-*")
+		if err != nil {
+			return Proposal{}, err
+		}
+		defer os.RemoveAll(dir)
+		answer := filepath.Join(dir, "proposal.json")
+		args, err := providers.PlannerArgs(p.Adapter, answer)
+		if err != nil {
+			return Proposal{}, err
+		}
+		cmd := exec.CommandContext(ctx, p.Program, args...)
+		cmd.Dir = dir
+		cmd.Env = providers.Environment(r.Recon.Workspace)
+		cmd.Stdin = bytes.NewReader(request)
+		cmd.WaitDelay = time.Second
+		var out limitedWriter
+		cmd.Stdout = &out
+		cmd.Stderr = io.Discard
+		if err := cmd.Run(); err != nil {
+			return Proposal{}, fmt.Errorf("Planner %s failed (%w); check CLI authentication, supported flags and permissions", p.Adapter, err)
+		}
+		output = out.Bytes()
+		if out.overflow {
+			return Proposal{}, errors.New("planning response exceeds 1 MiB")
+		}
+		if p.Adapter == "codex" {
+			info, err := os.Lstat(answer)
+			if err != nil {
+				return Proposal{}, fmt.Errorf("Codex returned no final proposal file: %w", err)
+			}
+			if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+				return Proposal{}, errors.New("invalid or oversized final proposal file")
+			}
+			output, err = os.ReadFile(answer)
+			if err != nil {
+				return Proposal{}, err
+			}
+		}
+		output, err = providers.ProposalText(p.Adapter, output)
+		if err != nil {
+			return Proposal{}, err
+		}
 	case p.Program != "" && p.Endpoint == "":
 		// Proposal adapters run away from the target worktree, receive context via
 		// stdin, and must emit JSON. This is an execution contract, not a sandbox.
@@ -136,6 +185,32 @@ func (p Provider) Propose(ctx context.Context, r Request) (Proposal, error) {
 		return Proposal{}, errors.New("configure exactly one planning program or chat-completion endpoint")
 	}
 	return Decode(output)
+}
+
+func (p Provider) ValidateAdapter(workspace string) error {
+	if err := p.ValidateDefinition(); err != nil {
+		return err
+	}
+	if p.Adapter == "" {
+		return nil
+	}
+	return providers.ValidateBinding(p.Adapter, p.Program, workspace)
+}
+
+func (p Provider) ValidateDefinition() error {
+	if p.Adapter == "" {
+		return nil
+	}
+	if _, err := providers.Lookup(p.Adapter); err != nil {
+		return err
+	}
+	if len(p.Args) != 0 || p.Endpoint != "" || p.APIKeyEnv != "" || p.Model != "" {
+		return errors.New("built-in Planner arguments/settings cannot be overridden; use a separate custom provider")
+	}
+	if !filepath.IsAbs(p.Program) {
+		return errors.New("built-in Planner executable must be registry-resolved")
+	}
+	return nil
 }
 
 func Decode(data []byte) (Proposal, error) {

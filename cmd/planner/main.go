@@ -19,10 +19,12 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/controller"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/providers"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/recon"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/review"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
 func main() {
@@ -42,12 +44,28 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	configPath := flags.String("config", filepath.Join(configRoot, "orchestrator", "planner.json"), "trusted provider/worker/validator configuration")
 	requested := flags.String("objective", "", "natural-language objective (asked if omitted)")
 	resume := flags.String("resume", "", "resume a saved objective; otherwise choose interactively")
+	var plannerID string
+	flags.StringVar(&plannerID, "planner", "", "built-in Planner ID (codex, claude, gemini)")
+	flags.StringVar(&plannerID, "provider", "", "alias for --planner")
+	workerIDs := flags.String("workers", "", "comma-separated built-in worker providers")
+	maxWorkers := flags.Int("max-workers", 0, "maximum concurrent workers (defaults to trusted policy)")
+	list := flags.Bool("list-providers", false, "list installed compatible adapters without running them")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
 	}
+	if *list {
+		listProviders(out, *workspace)
+		return nil
+	}
+	configExplicit := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configExplicit = true
+		}
+	})
 	reader := bufio.NewReader(in)
 	if *workspace == "" {
 		value, err := ask(reader, out, "Target repository path: ")
@@ -60,9 +78,28 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	if err != nil {
 		return err
 	}
-	c, err := controller.LoadConfig(*configPath)
-	if err != nil {
+	if plannerID != "" {
+		if _, err := providers.Resolve(plannerID, primary); err != nil {
+			return err
+		}
+	}
+	if *workerIDs != "" {
+		for _, id := range strings.Split(*workerIDs, ",") {
+			if _, err := providers.Resolve(strings.TrimSpace(id), primary); err != nil {
+				return err
+			}
+		}
+	}
+	if err := customConfigTrust(reader, out, *configPath, primary, configExplicit); err != nil {
+		return err
+	}
+	c, err := controller.ReadConfig(*configPath)
+	missingPolicy := os.IsNotExist(err)
+	if err != nil && !missingPolicy {
 		return fmt.Errorf("load trusted Planner configuration: %w", err)
+	}
+	if c.Planner.Program == "" && c.Planner.Endpoint == "" && len(available(primary, true)) == 0 {
+		return fmt.Errorf("no compatible Planner CLI is installed on trusted PATH; install/authenticate Codex, Claude Code or Gemini CLI, or use --config for a custom provider")
 	}
 	fmt.Fprintf(out, "Repository detected: %s\n", primary)
 	preflight, err := enrollment.Preflight(primary)
@@ -122,6 +159,33 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 				objectiveID = ids[n-1]
 			}
 		}
+	}
+	var saved state.Objective
+	if objectiveID != "" {
+		_, saved, err = scheduler.Restore(primary, objectiveID)
+		if err != nil {
+			return err
+		}
+	}
+	if err := activate(reader, out, primary, &c, plannerID, *workerIDs, saved); err != nil {
+		return err
+	}
+	if *maxWorkers < 0 {
+		return errors.New("max-workers must be positive")
+	}
+	if *maxWorkers > 0 {
+		c.MaxWorkers = *maxWorkers
+	}
+	if missingPolicy {
+		if err := bootstrap(reader, out, primary, *configPath, &c); err != nil {
+			return err
+		}
+	}
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if err := c.ValidateAdapters(primary); err != nil {
+		return err
 	}
 	if objectiveID == "" {
 		text := strings.TrimSpace(*requested)

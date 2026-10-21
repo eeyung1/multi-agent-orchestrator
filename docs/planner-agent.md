@@ -1,14 +1,73 @@
 # Planner Agent
 
+## Dynamic activation
+
+Run `go run ./cmd/planner --workspace /path/to/project`. Without configured custom
+providers, select an installed Planner and a worker pool interactively. Explicit
+selection is available with `--planner codex` (`--provider` is an alias),
+`--workers codex,gemini`, and `--max-workers 3`. `--list-providers` reports local
+availability without invoking any provider, probing authentication, or installing
+anything. Missing/unavailable/unknown providers produce actionable errors.
+
+`internal/providers` owns the closed registry: stable IDs, display names,
+executable names, Planner/Worker roles, fixed argv construction and output
+normalization. It inspects only absolute PATH entries, rejects executables or
+symlinks controlled by the target/launching Git repository, and pins the resolved
+absolute executable. Built-in children receive a PATH without relative or
+project-local interpreter directories. JSON cannot redefine a built-in's argv.
+
+| ID | Planner | Worker |
+| --- | --- | --- |
+| `codex` | `exec`, read-only sandbox, final-message file | `exec`, workspace-write sandbox, approvals never escalated |
+| `claude` | print JSON, built-in tools disabled, explicit empty MCP set | print text, acceptEdits, explicit empty MCP set |
+| `gemini` | headless JSON, plan approval mode, extensions disabled | headless text, auto_edit plus sandbox, extensions disabled |
+
+There are no default approval/sandbox bypass flags. Codex's adapter was checked
+against installed `codex exec --help` (acceptance target 0.163.0). Claude/Gemini
+permission policy can block a headless command, and Gemini's worker sandbox may
+require a supported sandbox backend. Unsupported flags, authentication failures
+and denials fail explicitly; there is no automatic downgrade to unrestricted
+execution. CLI presence alone is not proof of compatible version/authentication.
+
+References: [Codex CLI](https://developers.openai.com/codex/cli/reference/),
+[Claude CLI](https://code.claude.com/docs/en/cli-reference),
+[Gemini headless mode](https://geminicli.com/docs/cli/headless/).
+
+If trusted policy is missing, the CLI proposes familiar checks from project file
+names or asks for a validation executable plus a JSON argument array. It never
+executes discovered scripts during bootstrap. The user explicitly authorizes the
+mandatory checks and may save a policy-only file in their user configuration.
+There is no diff-only or no-tests fallback. Scope limits, required gates,
+concurrency, timeouts and custom adapters remain trusted policy.
+
+Selected worker IDs become capability IDs advertised to the model. Go admission
+permits only the selected capabilities; the model cannot introduce a shell or
+unselected provider. Maximum concurrency remains a controller policy limit.
+
+Objectives record selected built-in Planner/worker IDs in structured state. On
+resume the CLI restores those IDs without another selection prompt, resolves
+their executable bindings, and runs the existing full configuration/plan digest
+checks. A changed executable binding, provider pool, policy, or instruction set
+does not grant new permission or release existing ownership. Legacy/custom
+objectives retain their original explicit configuration contract.
+
+Built-in workers leave product edits uncommitted. After their process exits, the
+Go controller verifies generation/ownership, branch/base, all committed/staged/
+unstaged/untracked paths, then stages explicit owned paths and makes a local
+feature commit. This avoids granting a worker write access to shared Git control
+metadata merely to commit. Exact-head validation and evidence/review gates still
+apply. An unowned change blocks collection and keeps the claim. No integration,
+push, merge or deployment is added.
+
 ## Recon and implementation boundary
 
-Before this feature, the Go pipeline required a user-supplied JSON plan, manual
+Before PR #28, the Go pipeline required a user-supplied JSON plan, manual
 acquisition, a separately launched worker, and manual result collection. Go
 already provided enrollment, durable task reservations, assignment generations,
 exclusive claims, isolated worktrees, execution heartbeats, and review records.
 `go test ./...` passed before implementation.
 
-Missing connections were objective/repository interaction, bounded recon,
+PR #28 supplied objective/repository interaction, bounded recon,
 proposal-only inference, rich task metadata, deterministic admission, concurrent
 dispatch, validation/result binding, restart reconstruction, and a single report.
 
@@ -26,8 +85,8 @@ User objective + explicit operational authorization
   -> Planner: inspect context, propose tasks, ask real decision questions
   -> Go controller: admit the exact plan and trusted configuration
   -> Scheduler: reserve eligible tasks, sessions, claims, generations, worktrees
-  -> Provider-neutral workers: implement and commit local owned changes
-  -> Go controller: supervise, validate, bind evidence, collect results
+  -> Provider-neutral workers: implement local owned changes
+  -> Go controller: supervise, commit built-in output, validate, collect evidence
   -> Planner: consolidated AWAITING_REVIEW package
   -> Human: APPROVED / CHANGES_REQUESTED
   -> Separate human-controlled integration
@@ -58,13 +117,13 @@ actual worktree before dispatch, and fingerprinted during execution/restart.
 Semantic interpretation of arbitrary prose still requires model reasoning and
 human plan review; this is not a formal verifier of every project convention.
 
-## Provider contracts
+## Advanced / Custom Providers
 
 Trusted personal configuration supplies executables, argument vectors,
 validators, policy limits and model credentials by environment-variable name.
 The CLI never implicitly loads executable policy from the target repository.
 
-The proposal provider supports either:
+Explicit trusted custom configuration supports either:
 
 - a chat-completion HTTP endpoint with `model`, `messages`, and one textual
   `choices[].message.content` JSON proposal; or
@@ -109,9 +168,14 @@ interpretation is added. The assignment includes the exact task, objective,
 acceptance, instructions, scope, branch/worktree, session, token, generation and
 collected prerequisite results. Reports omit tokens and generations.
 
-Codex is an example configuration, not a runtime dependency. An adapter for any
-compatible CLI can use the same contract. Automated tests use fake providers and
-CLI workers; live Codex/provider acceptance has not been performed.
+Custom adapters remain separate from the built-in registry. An explicit
+`--config` can retain HTTP/CLI Planner and arbitrary capability-to-worker vectors;
+project-local configuration requires a separate trust confirmation, and a default
+user-config symlink into a project is rejected. A custom adapter cannot register
+new built-in definitions or override a built-in's fixed arguments. Custom
+workers retain the PR #28 commit contract; built-ins use controller-owned commits.
+Automated tests use fake providers and CLI workers; live provider acceptance has
+not been performed.
 
 ## Execution, dependency and recovery policy
 
@@ -156,7 +220,9 @@ has one bounded directory/file scope. Recon is bounded, excludes common secret
 files and dependencies, and cannot guarantee that every sensitive file has been
 identified. Review context before approving transmission to an external provider.
 
-Workers inherit local process permissions/environment. POSIX managed process
+Workers inherit local process permissions/environment (built-ins filter PATH).
+Provider-specific sandbox/permission modes do not turn Go into an OS sandbox.
+POSIX managed process
 groups are terminated on cancellation/exit; Windows cancellation is best effort.
 Detached processes and unrestricted same-user writes remain outside a security
 sandbox. Do not use this system as containment for hostile code.

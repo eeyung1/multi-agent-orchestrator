@@ -6,7 +6,91 @@ The Go ORCHESTRATOR is the coordination authority. It manages enrollment, sessio
 
 > Current boundary: this is a local orchestration system. It is not an OS/container security sandbox and its locks are not a distributed multi-machine lock service.
 
-## Start with the Planner
+## Quick start
+
+1. Install Git and Go 1.24 or newer. Keep the orchestrator checkout beside your
+   project repositories. The Go-version troubleshooting section below remains
+   available if toolchain selection fails.
+2. Install and authenticate at least one supported coding-agent CLI yourself:
+   Codex, Claude Code or Gemini CLI. ORCHESTRATOR does not install agents, supply
+   credentials, or silently test paid model calls.
+3. Clone this repository:
+
+   ```bash
+   cd ~/Projects
+   git clone https://github.com/eeyung1/multi-agent-orchestrator.git
+   cd multi-agent-orchestrator
+   ```
+
+4. Run the regression suite:
+
+   ```bash
+   go test ./...
+   ```
+
+5. Start the Planner:
+
+   ```bash
+   go run ./cmd/planner
+   # Or identify the target repository up front:
+   go run ./cmd/planner --workspace ~/Projects/my-project
+   ```
+
+6. Choose the target repository, Planner and worker pool when prompted. A built-in
+   installed provider does not require editing JSON. You can also select directly:
+
+   ```bash
+   go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers codex,gemini --max-workers 3
+   go run ./cmd/planner --list-providers
+   ```
+
+   Detection only inspects trusted absolute PATH entries, not authentication or
+   version compatibility. It never executes a provider to probe availability.
+   Relative/project-local executables and symlinks into projects are excluded.
+   Missing/unavailable agents produce an error; install/authenticate them using
+   their own documented setup rather than granting the model installation rights.
+
+   A missing policy starts an explicit validation bootstrap. Choose the project's
+   required checks (Go/Node/Python suggestions are based on file names), or enter
+   a trusted executable plus a JSON argument array. Confirm the mandatory checks
+   and optionally save the policy in your user config. No checks are silently
+   omitted and nothing is executed during bootstrap. Project instructions may
+   require more gates than the suggested preset: use custom checks/policy for
+   those repositories. Do not substitute a weak check to shorten onboarding.
+7. Describe one objective. Approve genuine enrollment/legacy-authority decisions,
+   context transmission and the concrete task/dependency plan. The model proposes;
+   Go admits and enforces. Selected worker IDs become the permitted capabilities.
+8. Review the consolidated exact-head evidence at `AWAITING_REVIEW`. Record a
+   human approval or request changes. Merge and deployment remain separate,
+   human-controlled actions.
+
+Planner = conversation/reasoning. Go ORCHESTRATOR = deterministic authority.
+Workers = assigned implementation. User = final review/integration authority.
+Go handles scopes, claims, sessions, worktrees, generations and evidence.
+
+Built-in workers leave edits for Go to check and commit on the local feature
+branch. Codex uses read-only planning and workspace-write workers, without a
+dangerous approval/sandbox bypass. Claude uses no tools for planning and
+acceptEdits workers; Gemini uses plan mode for planning and a sandboxed auto_edit
+worker. Provider permission denials, missing sandbox backends and incompatible
+flags are reported rather than bypassed. This is still local orchestration,
+not an OS/container sandbox provided by Go.
+
+Restart the same command and select the saved objective. Its built-in selections
+are restored; configuration/instruction/generation checks remain enforced and
+existing assignments are never blindly relaunched. Explicit provider/pool changes
+require a new authorization. Keep the same policy/concurrency overrides for a
+resumed objective; policy drift fails closed.
+
+Before live acceptance, ensure CLI authentication, Git author identity, meaningful
+project validators and acknowledged ORCHESTRATOR enrollment. Legacy ownership is
+reconciled explicitly. The automated tests use fake agents, not live paid calls.
+
+## Advanced / Custom Providers
+
+This section is optional for HTTP providers, custom CLI adapters or handwritten
+policy. Built-in provider selection uses the quick-start flow above. Validators,
+required gates, scope ceilings, timeouts and concurrency remain trusted policy.
 
 Install Git, Go 1.24+, and your chosen coding-agent CLI. Keep one orchestrator
 checkout beside your target repositories, then verify it:
@@ -20,7 +104,7 @@ Planner = conversational/reasoning layer. Go ORCHESTRATOR = deterministic
 authority/enforcement. Workers = implementation agents. You = final
 review/integration/merge/deployment authority.
 
-### Configure providers and checks once
+### Configure custom providers and policy
 
 Copy [examples/planner.json](examples/planner.json) to a trusted personal
 configuration file. The default location on Linux is
@@ -33,8 +117,9 @@ Edit the example for your environment:
 - `planner`: your installed model's chat-completion endpoint/model, or a
   proposal-only CLI adapter (`program`/`args`). For hosted credentials set
   `api_key_env` to an exported variable's name; never put key values in JSON.
-- `workers`: capability names mapped to coding-agent executable/argument
-  vectors. The example uses Codex; any compatible CLI adapter can be substituted.
+- `workers`: capability names mapped to custom executable/argument vectors, or
+  a built-in ID such as `"codex": {"adapter": "codex"}`. A built-in's arguments
+  and executable cannot be redefined. Custom definitions remain a separate path.
   `{prompt}` is the complete assignment as one argument. Stdin also receives JSON.
 - `validators`: named executable/argument vectors for the project's real tests,
   builds and checks. Replace Go examples for non-Go projects. The model can
@@ -71,8 +156,9 @@ Empty input or silence never authorizes enrollment, execution or review.
 
 After confirmation, ORCHESTRATOR handles sessions, tokens, generations,
 worktrees, dispatch, heartbeats, bounded repair, validation and collection. You
-do not need to copy these values between commands. Workers commit local feature
-branches. This version does not automatically push them or create product PRs.
+do not need to copy these values between commands. Go commits checked built-in
+worker output; custom workers retain their explicit local-commit contract.
+This version does not automatically push product branches or create product PRs.
 
 ### Resume and review
 

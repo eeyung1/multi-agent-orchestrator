@@ -14,6 +14,7 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/recon"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/review"
@@ -70,8 +71,137 @@ func TestWorkerHelper(t *testing.T) {
 	if err := os.WriteFile(path, []byte(w.Task.Description+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if os.Getenv("ORCHESTRATOR_UNOWNED") == "1" {
+		if err := os.WriteFile(filepath.Join(cwd, "outside.txt"), []byte("unowned"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Contains(w.Protocol, "Leave changes uncommitted") {
+		return
+	}
 	helperGit(t, cwd, "add", "--", path)
 	helperGit(t, cwd, "commit", "-m", "Implement "+w.Task.ID)
+}
+
+func nativeFixture(t *testing.T) (string, Config) {
+	d, c := fixture(t)
+	bin := t.TempDir()
+	program := filepath.Join(bin, "codex")
+	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(os.Args[0], "'", "'\"'\"'") + "' -test.run=^TestWorkerHelper$\n"
+	if err := os.WriteFile(program, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	c.Planner = planner.Provider{Adapter: "codex", Program: program}
+	c.Workers = map[string]Worker{"codex": {Adapter: "codex", Program: program}}
+	return d, c
+}
+
+func TestNativeWorkerLeavesGitToControllerAndRetainsRestartAuthority(t *testing.T) {
+	d, c := nativeFixture(t)
+	v := task("native")
+	v.Capability = "codex"
+	p := admit(t, d, c, v)
+	r, err := Run(context.Background(), d, p.ID, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != "AWAITING_REVIEW" {
+		t.Fatalf("%+v", r)
+	}
+	s, err := scheduler.Read(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := s.Objectives[p.ID]
+	if o.PlannerProvider != "codex" || len(o.WorkerProviders) != 1 || o.WorkerProviders[0] != "codex" {
+		t.Fatalf("provider selection not persisted: %+v", o)
+	}
+	st := s.Tasks[p.ID+"::native"]
+	if helperGit(t, st.Worktree, "log", "-1", "--format=%s") != "Implement native" || st.ValidatedHead == "" {
+		t.Fatalf("controller did not commit/validate: %+v", st)
+	}
+	if _, err := Run(context.Background(), d, p.ID, c); err != nil {
+		t.Fatal(err)
+	}
+	s, _ = scheduler.Read(d)
+	if s.Tasks[p.ID+"::native"].Attempt != 1 {
+		t.Fatal("restart duplicated native assignment")
+	}
+	c.MaxWorkers++
+	if _, err := Run(context.Background(), d, p.ID, c); err == nil {
+		t.Fatal("restart weakened policy fencing")
+	}
+}
+
+func TestNativeControllerRefusesUnownedEditsBeforeCommit(t *testing.T) {
+	d, c := nativeFixture(t)
+	t.Setenv("ORCHESTRATOR_UNOWNED", "1")
+	v := task("native")
+	v.Capability = "codex"
+	p := admit(t, d, c, v)
+	r, err := Run(context.Background(), d, p.ID, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status == "AWAITING_REVIEW" {
+		t.Fatal("unowned changes accepted")
+	}
+	s, _ := scheduler.Read(d)
+	st := s.Tasks[p.ID+"::native"]
+	if st.Status != "BLOCKED" || len(s.Results) != 0 || helperGit(t, st.Worktree, "rev-parse", "HEAD") != st.BaseSHA {
+		t.Fatalf("unowned output committed/published: %+v", st)
+	}
+	claims, _ := coordination.Claims(d)
+	if len(claims) != 1 {
+		t.Fatal("blocked claim lost")
+	}
+}
+
+func TestMultipleNativeProvidersUseSeparateAssignments(t *testing.T) {
+	d, c := nativeFixture(t)
+	bin := filepath.Dir(c.Workers["codex"].Program)
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexec '"+strings.ReplaceAll(os.Args[0], "'", "'\"'\"'")+"' -test.run=^TestWorkerHelper$\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	c.Workers["claude"] = Worker{Adapter: "claude", Program: filepath.Join(bin, "claude")}
+	a, b := task("codex-task"), task("claude-task")
+	a.Capability = "codex"
+	b.Capability = "claude"
+	t.Setenv("ORCHESTRATOR_BARRIER", t.TempDir())
+	p := admit(t, d, c, a, b)
+	r, err := Run(context.Background(), d, p.ID, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Status != "AWAITING_REVIEW" || len(r.Tasks) != 2 {
+		t.Fatalf("%+v", r)
+	}
+	s, _ := scheduler.Read(d)
+	if s.Tasks[p.ID+"::codex-task"].SessionID == s.Tasks[p.ID+"::claude-task"].SessionID {
+		t.Fatal("providers shared ownership")
+	}
+}
+
+func TestNativeBindingSkipsTargetControlledPathShadow(t *testing.T) {
+	d, c := nativeFixture(t)
+	bin := filepath.Join(d, "bin")
+	if err := os.Mkdir(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"codex", "node"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 99\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	v := task("native")
+	v.Capability = "codex"
+	p := admit(t, d, c, v)
+	r, err := Run(context.Background(), d, p.ID, c)
+	if err != nil || r.Status != "AWAITING_REVIEW" {
+		t.Fatalf("trusted binding was shadowed: %+v %v", r, err)
+	}
 }
 
 func fixture(t *testing.T) (string, Config) {

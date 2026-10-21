@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -44,10 +46,42 @@ func TestDecisionsAndAuthorityFields(t *testing.T) {
 	if err != nil || len(p.Questions) != 1 {
 		t.Fatalf("%+v %v", p, err)
 	}
-	for _, data := range []string{`{"approved":true}`, `{"plan":{"id":"p","ownership":"mine"}}`, `{"questions":[]} {"questions":[]}`, `{"questions":[""]}`} {
+	for _, data := range []string{`{"approved":true}`, `{"plan":{"id":"p","ownership":"mine"}}`, `{"plan":{"id":"p","tasks":[{"id":"a","program":"/bin/sh"}]}}`, `{"questions":[]} {"questions":[]}`, `{"questions":[""]}`} {
 		if _, err := Decode([]byte(data)); err == nil {
 			t.Fatalf("accepted authority/invalid response %s", data)
 		}
+	}
+}
+
+func TestNativeCodexProposalUsesFinalFileAndReadOnlyPolicy(t *testing.T) {
+	bin := t.TempDir()
+	program := filepath.Join(bin, "codex")
+	script := `#!/bin/sh
+answer=''
+seen_readonly=0
+while [ "$#" -gt 0 ]; do
+ case "$1" in
+ --output-last-message) shift; answer="$1" ;;
+ read-only) seen_readonly=1 ;;
+ esac
+ shift
+done
+[ "$seen_readonly" = 1 ] || exit 3
+input=$(/bin/cat)
+case "$input" in *"never a coordination authority"*) ;; *) exit 4 ;; esac
+printf '%s' '{"questions":["Which acceptance outcome?"]}' > "$answer"
+printf '%s' 'diagnostic output is not the proposal'
+`
+	if err := os.WriteFile(program, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	p, err := (Provider{Adapter: "codex", Program: program}).Propose(context.Background(), Request{Objective: "work", Recon: recon.Report{Workspace: t.TempDir()}})
+	if err != nil || len(p.Questions) != 1 {
+		t.Fatalf("%+v %v", p, err)
+	}
+	if _, err := (Provider{Adapter: "codex", Program: program, Args: []string{"--unsafe-override"}}).Propose(context.Background(), Request{}); err == nil {
+		t.Fatal("built-in argument injection accepted")
 	}
 }
 func TestProviderErrorsAreBoundedAndDoNotExposeResponseSecrets(t *testing.T) {

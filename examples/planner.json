@@ -4,10 +4,7 @@
     "model": "REPLACE_WITH_YOUR_INSTALLED_MODEL"
   },
   "workers": {
-    "coding": {
-      "program": "codex",
-      "args": ["exec", "{prompt}"]
-    }
+    "codex": {"adapter": "codex"}
   },
   "validators": {
     "go-tests": {"program": "go", "args": ["test", "./..."]},

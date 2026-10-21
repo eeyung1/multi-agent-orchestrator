@@ -26,6 +26,7 @@ type Request struct {
 	Guard                        func() error
 	Input                        string
 	RedactArguments              bool
+	Environment                  []string
 }
 type Result struct {
 	ExitCode int
@@ -67,7 +68,11 @@ func Run(req Request) (Result, error) {
 	configureProcess(cmd)
 	cmd.Dir = req.Worktree
 	cmd.Stdin = strings.NewReader(req.Input)
-	cmd.Env = append(os.Environ(), "ORCHESTRATOR_SESSION_ID="+req.SessionID, "ORCHESTRATOR_WORKTREE="+req.Worktree)
+	env := req.Environment
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = append(env, "ORCHESTRATOR_SESSION_ID="+req.SessionID, "ORCHESTRATOR_WORKTREE="+req.Worktree)
 	var buffer boundedOutput
 	cmd.Stdout = &buffer
 	cmd.Stderr = &buffer
