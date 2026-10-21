@@ -49,7 +49,7 @@ func bootstrapMigratedState(primary,repositoryID,provenance,fingerprint string,c
 	now:=time.Now().UTC().Format(time.RFC3339)
 	s:=state.Snapshot{Authority:state.Authority{RepositoryID:repositoryID,Protocol:state.ProtocolVersion,Schema:state.SchemaVersion,Generation:1,Enrollment:"MIGRATED",Provenance:provenance+"; legacy-fingerprint="+fingerprint,EnrolledUTC:now},Sessions:map[string]state.Session{},Claims:map[string]state.Claim{},Objectives:map[string]state.Objective{},Tasks:map[string]state.Task{},Results:map[string]state.ResultRecord{},Reviews:map[string]state.Review{},Events:[]state.Event{}}
 	for _,c:=range claims{if strings.EqualFold(c.Status,"ACTIVE")||strings.EqualFold(c.Status,"WORKING"){return fmt.Errorf("active legacy claim %s cannot be auto-migrated; quiesce or hand off explicitly",c.Token)}}
-	data,err:=json.MarshalIndent(s,"","  ");if err!=nil{return err};data=append(data,'\\n');return atomicCreate(path,data)
+	data,err:=json.MarshalIndent(s,"","  ");if err!=nil{return err};data=append(data,'\n');return atomicCreate(path,data)
 }
 
 func inspectKnownPythonLedger(primary,script string)([]LegacyClaim,bool,string){
@@ -60,7 +60,7 @@ func inspectKnownPythonLedger(primary,script string)([]LegacyClaim,bool,string){
 	if err:=s.Err();err!=nil{return nil,false,err.Error()};return claims,true,""
 }
 func tableCells(line string)[]string{raw:=strings.Split(strings.TrimSpace(line),"|");var out []string;for _,v:=range raw[1:len(raw)-1]{out=append(out,strings.TrimSpace(v))};return out}
-func fingerprint(r Report,c []LegacyClaim)string{parts:=[]string{r.RepositoryID};for _,f:=range r.Findings{parts=append(parts,f.Path+":"+f.Kind)};for _,x:=range c{parts=append(parts,x.Token+":"+x.SessionID+":"+x.Scope+":"+x.Status)};sort.Strings(parts);return fmt.Sprintf("%x",sha256sum(strings.Join(parts,"\n")))}
+func fingerprint(r Report,c []LegacyClaim)string{parts:=[]string{r.RepositoryID};for _,f:=range r.Findings{parts=append(parts,f.Path+":"+f.Kind)};for _,x:=range c{parts=append(parts,x.Token+":"+x.SessionID+":"+x.Scope+":"+x.Status)};sort.Strings(parts);sum:=sha256.Sum256([]byte(strings.Join(parts,"\n")));return fmt.Sprintf("%x",sum[:])}
 
 func atomicCreate(path string,data []byte)error{
 	f,err:=os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err!=nil{return err}
