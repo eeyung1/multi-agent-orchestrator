@@ -22,3 +22,16 @@ func TestMigrateRefusesActiveLegacyClaim(t *testing.T){
 	os.WriteFile(filepath.Join(dir,"agentmeeting.md"),[]byte("## Atomic Claims\n| Token | Session | Feature | Scope | Status |\n|---|---|---|---|---|\n| old | s1 | f | backend | WORKING |\n"),0644)
 	if _,e:=Migrate(d,"user-approved",true);e==nil{t.Fatal("expected active claim refusal")}
 }
+
+func TestReconcileAcceptsExplicitSoleAuthorityInstruction(t *testing.T){
+	d:=legacyRepo(t)
+	instruction:="# Shared repository work\n\nThe Go multi-agent ORCHESTRATOR is the sole authority for agent lifecycle and ownership.\n\nscripts/agent_coordination.py is retired as an ownership writer and must not be used for ownership.\nOnly Emmanuel authorizes merges to main.\n"
+	if e:=os.WriteFile(filepath.Join(d,"AGENTS.md"),[]byte(instruction),0644);e!=nil{t.Fatal(e)}
+	r,e:=Reconcile(d);if e!=nil{t.Fatal(e)};if len(r.Ambiguous)!=0{t.Fatalf("unexpected ambiguity: %v",r.Ambiguous)}
+}
+func TestReconcileStillRejectsPartialAuthorityInstruction(t *testing.T){
+	d:=legacyRepo(t)
+	instruction:="Agents must claim scopes before editing. The ORCHESTRATOR is the sole authority for claims. Only Emmanuel merges to main.\n"
+	if e:=os.WriteFile(filepath.Join(d,"AGENTS.md"),[]byte(instruction),0644);e!=nil{t.Fatal(e)}
+	r,e:=Reconcile(d);if e!=nil{t.Fatal(e)};if len(r.Ambiguous)==0{t.Fatal("expected unfenced legacy writer ambiguity")}
+}
