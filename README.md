@@ -300,11 +300,33 @@ Controlled completion closes the runtime lifecycle with validation-backed comple
 go run ./cmd/orchestrator --complete --workspace /path/to/project --worktree /path/to/worktree --session SESSION --feature feature-name --token claim-token --validate-program go --validate-arg test --validate-arg ./...
 ```
 
-The orchestrator executes the requested validation inside the agent worktree and
-records the outcome in `resolution.md`. A successful validation transitions
-the session to `COMPLETE` and releases its claim. A failed validation records
-the evidence, transitions the session to `BLOCKED`, and deliberately retains
-the claim so another agent cannot take ownership of failing work prematurely.
+The orchestrator executes validation inside the agent worktree. After success,
+it acquires the coordination lock, verifies the session is `WORKING` and owns
+`--token`, then appends and syncs successful evidence in `resolution.md`. One
+atomic replacement of `agentmeeting.md` publishes `COMPLETE` together with removal
+of **all claims owned by that session**, across features/scopes. Claims belonging
+to other sessions are preserved, even when tokens match. The existing `--token`
+flag remains required for ownership verification and the evidence reference; it
+is not a restriction on which of that session's claims are released.
+
+Failed validation records `BLOCKED` evidence, transitions the session to `BLOCKED`,
+and retains **all** its claims. Recording, locking and publication errors are
+returned rather than reported as successful completion. Direct `--state COMPLETE`
+transitions reject outstanding claims; completed sessions cannot acquire claims
+or receive handoffs. Individual `--release --session SESSION --token TOKEN`
+remains token-specific and does not complete the session.
+
+**Storage limitation:** resolution evidence and the live ledger are separate
+files, not a cross-file transaction. A ledger-write failure or crash after evidence
+was appended can leave successful validation/completion evidence without a live
+COMPLETE transition. The prior session state and claims are retained if publication
+fails; inspect `agentmeeting.md` and the returned error before treating evidence
+as completion. Resolve the storage/lock problem and retry from the valid live
+state; evidence can be duplicated on retry. Do not erase append-only history or
+steal a stale lock automatically. State and claim removal share one ledger rename,
+so there is no intermediate COMPLETE-with-claims ledger from this operation.
+Filesystem crash durability and writers bypassing the coordination lock remain
+outside this guarantee.
 
 
 ### Controlled agent execution
@@ -334,10 +356,12 @@ go run ./cmd/orchestrator --run --workspace /path/to/project --agent Codex --rol
 ```
 
 The sequence is `activate → claim → isolated worktree → WORKING → execute →
-validate → resolution evidence → COMPLETE → release claim`. Execution failure
-or timeout stops the run before validation and leaves the session `BLOCKED`.
-Validation failure likewise leaves the session `BLOCKED` with its claim
-retained. A claim is released only after successful validation and completion.
+validate → resolution evidence → [COMPLETE + release all session claims]`.
+The bracketed changes are published in one locked ledger replacement. This also
+releases claims added by the implementation command. Execution failure or timeout
+stops before validation and leaves the session `BLOCKED`; validation failure
+likewise retains all its claims. Completion storage errors propagate through
+`--run`, subject to the cross-file evidence limitation above.
 
 ### Command execution safety
 
@@ -348,7 +372,7 @@ Go runtime execution and validation use structured executable/argument vectors r
 
 The core local Go orchestration milestone is **complete**. The runtime now covers the intended guarded lifecycle:
 
-`activate → register → claim → isolated worktree → WORKING → execute → validate → resolution evidence → COMPLETE → release`
+`activate → register → claim → isolated worktree → WORKING → execute → validate → resolution evidence → [COMPLETE + release all session claims]`
 
 Implemented and CI-covered capabilities include bootstrap locking, atomic coordination writes, registered-session claim integrity, hierarchical scope-conflict rejection, heartbeats and lifecycle transitions, handoff validation, isolated Git worktrees, guarded startup rollback, validation-backed completion, end-to-end execution, and structured executable/argument invocation without orchestrator-side shell interpretation.
 

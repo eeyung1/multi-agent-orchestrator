@@ -460,10 +460,29 @@ validation passes
    ↓
 resolution evidence recorded
    ↓
-COMPLETE
-   ↓
-claim released
+COMPLETE + all session claims released
+(one locked, atomic agentmeeting.md replacement)
 ```
+
+`--complete` completes the entire session, including additional claims acquired
+under that session for other features/scopes. `--token` still identifies an owned
+claim and the evidence reference; it does not limit cleanup to that token. Other
+sessions' claims remain owned. To release just one claim without completing the
+session, use `--release --session SESSION_ID --token CLAIM_TOKEN`.
+
+The coordination lock covers ownership/lifecycle checks, successful evidence
+recording and the combined state/claim ledger update. A direct COMPLETE transition
+with outstanding claims is rejected, and a completed session cannot acquire or
+receive new claims.
+
+Resolution evidence and the live ledger are separate files. If evidence is written
+but ledger publication fails or the process crashes, evidence may remain while
+the prior live state and claims are retained. The command returns an error on
+publication failure; verify `agentmeeting.md` rather than treating a success
+heading in `resolution.md` as proof of completion. After resolving the storage or
+lock failure, retry from the valid live state; retries may append repeated evidence.
+Do not delete historical evidence or automatically remove a stale lock. The
+single-ledger rename is not a distributed or crash-durable cross-file transaction.
 
 The agent's code still remains on its feature branch until the normal GitHub integration process is completed.
 
@@ -471,7 +490,7 @@ The agent's code still remains on its feature branch until the normal GitHub int
 
 ## 17. Understand failed validation
 
-If validation fails:
+If validation fails, BLOCKED evidence is recorded and all claims are retained:
 
 ```text
 WORKING
@@ -480,7 +499,7 @@ validation fails
    ↓
 BLOCKED
    ↓
-claim remains owned
+all session claims remain owned
 ```
 
 Do not assign the same scope to another agent simply because the first attempt failed.
