@@ -28,6 +28,7 @@ type Result struct {
 }
 
 func Start(req Request) (Result, error) {
+	if err := enrollment.RequireEnrolled(req.Workspace); err != nil { return Result{}, err }
 	active, err := activation.Activate(req.Workspace, req.Agent, req.Role)
 	if err != nil { return Result{}, err }
 
