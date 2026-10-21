@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"\n\t"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"time"
 )
 
