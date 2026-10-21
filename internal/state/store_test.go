@@ -51,3 +51,14 @@ func TestConcurrentInitializationFailsClosedWithoutCorruption(t *testing.T) {
 	}
 	if _, err := s.Read(); err != nil { t.Fatalf("state corrupted by contention: %v", err) }
 }
+
+func TestOpenRefusesAmbiguousLegacyOperationalState(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "multi-agent-orchestrator")
+	if err := os.MkdirAll(dir, 0o755); err != nil { t.Fatal(err) }
+	legacy := "# Agent Meeting\n\n| old-session | coding-agent | WORKING | now | feature | branch | token |\n"
+	if err := os.WriteFile(filepath.Join(dir, "agentmeeting.md"), []byte(legacy), 0o644); err != nil { t.Fatal(err) }
+	if _, err := Open(root, "repo:test"); err == nil {
+		t.Fatal("expected ambiguous legacy state to fail closed")
+	}
+}
