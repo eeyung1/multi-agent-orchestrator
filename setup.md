@@ -1,169 +1,128 @@
-# Multi-Agent Orchestrator Setup Guide
+# Multi-Agent Orchestrator — Public Setup Guide
 
-This guide walks you through using the Multi-Agent Orchestrator with coding agents such as Codex, Claude Code, OpenCode, Antigravity, or similar tools.
+This guide is for anyone who receives the repository link and wants to coordinate multiple coding agents on a local Git project.
 
-The goal is simple: multiple agents can work on one project at the same time without editing the same scope or sharing one unsafe working directory.
+The Go ORCHESTRATOR is the coordination authority. It manages enrollment, sessions, exclusive scopes, isolated Git worktrees, durable objective/task reservations, guarded execution, result evidence, and the human review gate. It does **not** automatically merge or deploy code.
 
-> **Important:** Do not clone the orchestrator inside every project. Keep one copy of the orchestrator beside your project repositories and point it at whichever project you want to coordinate.
+> Current boundary: this is a local orchestration system. It is not an OS/container security sandbox and its locks are not a distributed multi-machine lock service.
 
----
+## 1. Requirements
 
-## 1. Prerequisites
+Install:
 
-Before starting, make sure you have:
+- Git
+- Go 1.24 or newer
+- one or more coding-agent CLIs you want to run (Codex, Claude Code, OpenCode, etc.)
+- access to the target Git repository
 
-- Git installed.
-- Go installed.
-- Access to the project repository you want to work on.
-- The coding-agent tools you intend to use.
-- A terminal for running the orchestrator.
-
-Confirm Git and Go:
+Verify:
 
 ```bash
 git --version
 go version
 ```
 
----
+## 2. Recommended folder layout
 
-## 2. Create a workspace directory
-
-Choose one parent directory for your repositories.
-
-Example:
-
-```bash
-mkdir -p ~/Projects
-cd ~/Projects
-```
-
-Your final layout should look like:
+Keep the orchestrator beside target projects, not inside them:
 
 ```text
 ~/Projects/
 ├── multi-agent-orchestrator/
-└── my-project/
+├── project-a/
+└── project-b/
 ```
 
----
-
-## 3. Clone the orchestrator
-
-Clone the orchestrator once:
+Create the parent folder and clone:
 
 ```bash
+mkdir -p ~/Projects
 cd ~/Projects
+
 git clone https://github.com/eeyung1/multi-agent-orchestrator.git
+git clone https://github.com/OWNER/PROJECT.git my-project
 ```
 
-Enter it and verify its tests:
+Verify the orchestrator itself:
 
 ```bash
 cd ~/Projects/multi-agent-orchestrator
 go test ./...
 ```
 
-You can reuse this installation for multiple projects.
+All tests should pass before using it on another repository.
 
----
+## 3. Preflight the target repository
 
-## 4. Clone the project you want to work on
-
-Example:
-
-```bash
-cd ~/Projects
-git clone https://github.com/OWNER/PROJECT.git my-project
-```
-
-Replace `OWNER/PROJECT` with the real GitHub repository.
-
-Do not place the orchestrator repository inside `my-project`.
-
----
-
-## 5. Decide which agents will work on the project
-
-For example:
-
-```text
-Codex
-Claude Code
-OpenCode
-Antigravity
-```
-
-Each agent will eventually receive:
-
-1. a unique session;
-2. one feature;
-3. an exclusive scope;
-4. its own Git branch;
-5. its own isolated worktree.
-
-A useful rule is:
-
-```text
-One feature → one owner → one branch → one isolated worktree
-```
-
----
-
-## 6. Read the activation protocol
-
-The portable agent instructions are in:
-
-```text
-~/Projects/multi-agent-orchestrator/agent_activation_prompt.md
-```
-
-Give this protocol to every coding agent participating in the project.
-
-The prompt teaches the agent how to behave. The Go runtime provides the enforceable local coordination operations.
-
----
-
-## 7. Plan the work before starting agents
-
-Break the project work into independent features and scopes.
-
-Example:
-
-| Agent | Feature | Scope |
-| --- | --- | --- |
-| Codex | backend-auth | backend/auth |
-| Claude Code | frontend-login | frontend/login |
-| OpenCode | auth-tests | tests/auth |
-| Antigravity | auth-docs | docs/auth |
-
-Avoid assigning overlapping scopes.
-
-For example, if Codex owns:
-
-```text
-backend/auth
-```
-
-another agent should not claim:
-
-```text
-backend/auth/login.go
-```
-
-The runtime's hierarchical scope check will reject that overlap.
-
----
-
-## 8. Start the first agent
-
-Run the orchestrator from its own repository:
+Always inspect coordination authority before enrolling a project:
 
 ```bash
 cd ~/Projects/multi-agent-orchestrator
+
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --preflight
 ```
 
-For Codex:
+### New repository with no competing coordinator
+
+If preflight reports a native repository with no competing coordination mechanism, enroll it:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --enroll \
+  --enrollment-disposition NATIVE \
+  --enrollment-provenance "Repository owner authorized ORCHESTRATOR coordination"
+```
+
+### Repository that already has agent coordination
+
+Do **not** blindly enroll it. Reconcile first:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --reconcile-legacy
+```
+
+If `ambiguous` contains entries, resolve them before migration. Active/WORKING legacy claims must not be silently stolen or released.
+
+After the repository owner has fenced the old ownership writer, reconciled instructions, and confirmed historical ownership, migration can be authorized:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --migrate-legacy \
+  --acknowledge-legacy-history \
+  --enrollment-provenance "Owner approved migration after legacy coordination reconciliation"
+```
+
+Do not use this acknowledgement to bypass unresolved ownership.
+
+## 4. What appears in the target repository
+
+The runtime creates local coordination state such as:
+
+```text
+my-project/
+├── multi-agent-orchestrator/
+│   ├── state.json
+│   ├── agentmeeting.md
+│   ├── coordination.md
+│   └── resolution.md
+└── .agent-worktrees/
+```
+
+`state.json` is the structured authority state. The Markdown files are readable coordination/evidence ledgers.
+
+These runtime directories normally should **not** be committed to the target project's product branch. Add appropriate ignore rules for your repository if needed.
+
+## 5. Two ways to coordinate work
+
+### A. Direct/manual assignment
+
+For a small test, start independent assignments directly:
 
 ```bash
 go run ./cmd/orchestrator \
@@ -177,45 +136,9 @@ go run ./cmd/orchestrator \
   --base main
 ```
 
-The start operation performs the guarded setup:
+The runtime returns the session, claim, branch and isolated worktree.
 
-```text
-discover project
-      ↓
-bootstrap/join coordination
-      ↓
-register session
-      ↓
-claim scope
-      ↓
-create isolated branch/worktree
-      ↓
-record assignment
-      ↓
-WORKING
-```
-
-The command prints values similar to:
-
-```text
-agent=Codex-...
-state=WORKING
-claim=codex-backend-auth
-branch=agent/backend-auth
-worktree=/home/user/Projects/my-project/.agent-worktrees/backend-auth
-```
-
-Save the returned **session ID** and **worktree path**.
-
-Do not invent a session ID.
-
----
-
-## 9. Start the other agents
-
-Repeat the same process with a different feature, scope, and token.
-
-Claude Code example:
+Start another agent with a non-overlapping scope:
 
 ```bash
 go run ./cmd/orchestrator \
@@ -229,207 +152,131 @@ go run ./cmd/orchestrator \
   --base main
 ```
 
-OpenCode example:
+Invariant:
+
+```text
+one feature → one owner → one branch → one isolated worktree
+```
+
+Never point multiple agents at the same worktree.
+
+### B. Objective-plan acquisition
+
+For less manual assignment, define an objective plan. Example `plan.json`:
+
+```json
+{
+  "ID": "auth-hardening",
+  "Objective": "Harden authentication and document the behavior",
+  "Tasks": [
+    {
+      "ID": "backend-auth",
+      "Feature": "backend-auth",
+      "Scope": "backend/auth",
+      "Priority": 20
+    },
+    {
+      "ID": "auth-tests",
+      "Feature": "auth-tests",
+      "Scope": "tests/auth",
+      "DependsOn": ["backend-auth"],
+      "Priority": 10
+    },
+    {
+      "ID": "auth-docs",
+      "Feature": "auth-docs",
+      "Scope": "docs/auth",
+      "Priority": 5
+    }
+  ]
+}
+```
+
+Acquire the next eligible task:
 
 ```bash
 go run ./cmd/orchestrator \
-  --start \
   --workspace ~/Projects/my-project \
-  --agent OpenCode \
+  --acquire-next \
+  --plan-file ./plan.json \
+  --agent Codex \
   --role coding-agent \
-  --feature auth-tests \
-  --scope tests/auth \
-  --token opencode-auth-tests \
   --base main
 ```
 
-Antigravity example:
+Run the same command for additional workers. The scheduler persists the objective/tasks, reserves eligible work under structured state, prevents legitimate duplicate acquisition, creates assignment generations, and delegates the normal isolated-worktree start.
+
+Save the returned JSON. It contains the task, session, token, branch, worktree, attempt and assignment generation needed for later result collection.
+
+## 6. Give each agent its exact worktree
+
+The portable protocol is:
+
+```text
+~/Projects/multi-agent-orchestrator/agent_activation_prompt.md
+```
+
+Give each worker:
+
+- the activation protocol;
+- its returned session ID;
+- assigned task/feature;
+- exact scope;
+- exact worktree;
+- acceptance criteria.
+
+Open/run that coding agent **inside the returned worktree**, not the primary checkout.
+
+An agent must never infer ownership from silence or edit another assignment's scope.
+
+## 7. Heartbeats and guarded execution
+
+Refresh a long-running session:
 
 ```bash
 go run ./cmd/orchestrator \
-  --start \
   --workspace ~/Projects/my-project \
-  --agent Antigravity \
-  --role coding-agent \
-  --feature auth-docs \
-  --scope docs/auth \
-  --token antigravity-auth-docs \
-  --base main
-```
-
-Each successful start should return a different session and worktree.
-
----
-
-## 10. Confirm the coordination state
-
-After the first activation, the target project contains:
-
-```text
-my-project/
-├── multi-agent-orchestrator/
-│   ├── agentmeeting.md
-│   ├── coordination.md
-│   └── resolution.md
-└── .agent-worktrees/
-    ├── backend-auth/
-    ├── frontend-login/
-    ├── auth-tests/
-    └── auth-docs/
-```
-
-The three coordination files have different jobs:
-
-### `agentmeeting.md`
-
-Tracks live operational state such as:
-
-- active sessions;
-- lifecycle state;
-- heartbeat;
-- feature;
-- branch/worktree;
-- claim.
-
-### `coordination.md`
-
-Tracks ORCHESTRATOR-level information such as:
-
-- decisions;
-- permissions;
-- blockers;
-- conflicts;
-- handovers.
-
-### `resolution.md`
-
-Tracks completion evidence such as:
-
-- execution results;
-- validation results;
-- completed work;
-- resolution evidence.
-
----
-
-## 11. Point each coding agent at its own worktree
-
-Do not point all agents at the main checkout.
-
-Use the exact worktree path returned by `--start`.
-
-Example:
-
-```text
-Codex
-→ ~/Projects/my-project/.agent-worktrees/backend-auth
-
-Claude Code
-→ ~/Projects/my-project/.agent-worktrees/frontend-login
-
-OpenCode
-→ ~/Projects/my-project/.agent-worktrees/auth-tests
-
-Antigravity
-→ ~/Projects/my-project/.agent-worktrees/auth-docs
-```
-
-Open each coding tool in its assigned worktree.
-
-Then provide that agent with:
-
-1. `agent_activation_prompt.md`;
-2. its feature name;
-3. its claimed scope;
-4. its session ID;
-5. its claim token;
-6. the concrete acceptance criteria.
-
-The agent should not edit another agent's worktree or claimed scope.
-
----
-
-## 12. Keep agents alive with heartbeats
-
-For long-running work, refresh the session heartbeat.
-
-Example:
-
-```bash
-cd ~/Projects/multi-agent-orchestrator
-
-go run ./cmd/orchestrator \
-  --workspace ~/Projects/my-project \
-  --session CODEX_SESSION_ID \
+  --session SESSION_ID \
   --heartbeat
 ```
 
-Replace `CODEX_SESSION_ID` with the real ID returned by the orchestrator.
+The runtime can launch a CLI agent inside an already-owned worktree:
 
-The agent protocol calls for regular heartbeat updates during long-running work.
-
----
-
-## 13. Check status during development
-
-Open:
-
-```text
-~/Projects/my-project/multi-agent-orchestrator/agentmeeting.md
+```bash
+go run ./cmd/orchestrator \
+  --execute \
+  --workspace ~/Projects/my-project \
+  --worktree WORKTREE_PATH \
+  --session SESSION_ID \
+  --agent-program AGENT_EXECUTABLE \
+  --agent-arg ARGUMENT \
+  --timeout 30m
 ```
 
-Use it to see who owns what and the current lifecycle states.
+Use repeatable `--agent-arg` flags rather than combining an untrusted command into a shell string.
 
-Before expanding an agent's scope, coordinate and acquire the new scope first. Never assume that silence means another agent's files are free.
+Execution is ownership/lifecycle guarded, but it is not an OS sandbox.
 
----
+## 8. Validate normal/manual assignments
 
-## 14. Let the coding agent implement its feature
+For a directly started assignment, use the target project's real validation command.
 
-The agent works only inside its assigned worktree.
-
-For example, Codex works inside:
-
-```text
-~/Projects/my-project/.agent-worktrees/backend-auth
-```
-
-Normal development still applies:
-
-```text
-inspect
-→ implement
-→ test
-→ inspect diff
-→ commit
-→ push branch
-→ open PR
-```
-
-The orchestrator coordinates ownership and lifecycle. It does not replace Git or GitHub.
-
----
-
-## 15. Validate completed work
-
-When an agent says its feature is finished, run the appropriate project validation through the orchestrator.
-
-For a Go project:
+Go example:
 
 ```bash
 go run ./cmd/orchestrator \
   --complete \
   --workspace ~/Projects/my-project \
-  --worktree ~/Projects/my-project/.agent-worktrees/backend-auth \
-  --session CODEX_SESSION_ID \
-  --feature backend-auth \
-  --token codex-backend-auth \
+  --worktree WORKTREE_PATH \
+  --session SESSION_ID \
+  --feature FEATURE_NAME \
+  --token CLAIM_TOKEN \
   --validate-program go \
   --validate-arg test \
   --validate-arg ./...
 ```
 
-For a Node project, an example is:
+Node example:
 
 ```bash
 go run ./cmd/orchestrator \
@@ -443,128 +290,90 @@ go run ./cmd/orchestrator \
   --validate-arg test
 ```
 
-Use the real test command required by the target repository.
+Failed validation moves the work to BLOCKED and retains ownership. Do not give that scope to another worker merely because validation failed.
 
-Do not substitute a generic validation command when the project has its own required checks.
+## 9. Collect objective-task results
 
----
-
-## 16. Understand successful completion
-
-A successful completion follows:
-
-```text
-WORKING
-   ↓
-validation passes
-   ↓
-resolution evidence recorded
-   ↓
-COMPLETE + all session claims released
-(one locked, atomic agentmeeting.md replacement)
-```
-
-`--complete` completes the entire session, including additional claims acquired
-under that session for other features/scopes. `--token` still identifies an owned
-claim and the evidence reference; it does not limit cleanup to that token. Other
-sessions' claims remain owned. To release just one claim without completing the
-session, use `--release --session SESSION_ID --token CLAIM_TOKEN`.
-
-The coordination lock covers ownership/lifecycle checks, successful evidence
-recording and the combined state/claim ledger update. A direct COMPLETE transition
-with outstanding claims is rejected, and a completed session cannot acquire or
-receive new claims.
-
-Resolution evidence and the live ledger are separate files. If evidence is written
-but ledger publication fails or the process crashes, evidence may remain while
-the prior live state and claims are retained. The command returns an error on
-publication failure; verify `agentmeeting.md` rather than treating a success
-heading in `resolution.md` as proof of completion. After resolving the storage or
-lock failure, retry from the valid live state; retries may append repeated evidence.
-Do not delete historical evidence or automatically remove a stale lock. The
-single-ledger rename is not a distributed or crash-durable cross-file transaction.
-
-The agent's code still remains on its feature branch until the normal GitHub integration process is completed.
-
----
-
-## 17. Understand failed validation
-
-If validation fails, BLOCKED evidence is recorded and all claims are retained:
-
-```text
-WORKING
-   ↓
-validation fails
-   ↓
-BLOCKED
-   ↓
-all session claims remain owned
-```
-
-Do not assign the same scope to another agent simply because the first attempt failed.
-
-Fix the failure on the existing owned work or perform an explicit authorized handoff.
-
----
-
-## 18. Push and open a pull request
-
-Each agent pushes its own feature branch.
-
-Then open one focused pull request for that feature.
-
-The recommended integration workflow is:
-
-```text
-agent implements
-      ↓
-tests
-      ↓
-commit
-      ↓
-push feature branch
-      ↓
-open PR
-      ↓
-CI runs
-      ↓
-review exact PR head
-      ↓
-ORCHESTRATOR/authorized human merges
-```
-
-Do not treat an old green CI run as proof that the current PR head passes.
-
----
-
-## 19. Repeat for the next feature
-
-After a feature is completed and integrated, select the next eligible task.
-
-Start another isolated assignment:
+For objective-plan assignments, preserve the scheduler output. After the agent has implemented, tested, committed and pushed its branch, collect the exact result:
 
 ```bash
 go run ./cmd/orchestrator \
-  --start \
   --workspace ~/Projects/my-project \
-  --agent Codex \
-  --role coding-agent \
-  --feature NEXT_FEATURE \
-  --scope NEXT_SCOPE \
-  --token NEXT_UNIQUE_TOKEN \
-  --base main
+  --collect-result \
+  --objective-id auth-hardening \
+  --task-id backend-auth \
+  --session SESSION_ID \
+  --token CLAIM_TOKEN \
+  --assignment-generation ASSIGNMENT_GENERATION \
+  --worktree WORKTREE_PATH \
+  --result-branch BRANCH_NAME \
+  --validation-evidence "go test ./...: PASS" \
+  --artifact "PR #123" \
+  --limitation "No production deployment performed"
 ```
 
-Prefer starting new work from an up-to-date base branch.
+Repeat `--artifact`, `--blocker`, and `--limitation` when needed.
 
----
+Result collection resolves the exact Git HEAD from the assigned worktree and rejects stale session/generation publication.
 
-## 20. Optional: use the end-to-end runtime
+## 10. Human review gate
 
-The orchestrator can also compose start, execution, validation, and completion.
+When every task in an objective has a collected result, the objective becomes:
 
-Example shape:
+```text
+AWAITING_REVIEW
+```
+
+Build the consolidated review package:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --review-package \
+  --objective-id auth-hardening
+```
+
+The repository owner/reviewer can then record:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --objective-id auth-hardening \
+  --review-decision APPROVED \
+  --review-actor "Repository Owner"
+```
+
+or:
+
+```bash
+go run ./cmd/orchestrator \
+  --workspace ~/Projects/my-project \
+  --objective-id auth-hardening \
+  --review-decision CHANGES_REQUESTED \
+  --review-actor "Repository Owner"
+```
+
+**APPROVED does not merge, push, or deploy anything.** Integration remains under the repository's authorized human workflow.
+
+## 11. GitHub integration
+
+Each agent should normally:
+
+```text
+inspect → implement → test → commit → push feature branch → open focused PR
+```
+
+Then:
+
+```text
+CI → verify exact PR head → human review → authorized merge
+```
+
+Do not treat mergeability or an old successful CI run as proof that the current PR head passed.
+
+## 12. End-to-end execution option
+
+After understanding the lifecycle, a direct assignment can be composed into one guarded command:
 
 ```bash
 go run ./cmd/orchestrator \
@@ -584,126 +393,94 @@ go run ./cmd/orchestrator \
   --timeout 30m
 ```
 
-Only use this after you understand the manual lifecycle. The exact executable and arguments depend on the coding-agent CLI you are using.
+The exact agent executable/arguments depend on the coding tool installed by the user.
 
-The runtime uses structured executable/argument vectors. Do not convert the flags back into one shell command string.
+## 13. Recommended first test
 
----
+Use a disposable/small repository with two independent tasks.
 
-## 21. What the orchestrator does not do
+Confirm:
 
-The current milestone does **not** automatically discover open Codex, Claude Code, OpenCode, or Antigravity applications.
+1. preflight/enrollment succeeds;
+2. two agents receive different sessions/worktrees;
+3. overlapping scopes are rejected;
+4. both agents can work independently;
+5. validation/evidence is recorded;
+6. objective results reach `AWAITING_REVIEW`;
+7. the review package contains exact heads and evidence;
+8. nothing merges without the authorized human.
 
-It does not magically attach itself to existing agent windows.
+Only then increase the number of simultaneous workers.
 
-The current connection model is:
+## 14. Troubleshooting
 
-```text
-one target repository
-       +
-shared coordination state
-       +
-registered sessions
-       +
-exclusive claims
-       +
-isolated Git worktrees
-       +
-activation protocol
-       +
-coding agents opened in assigned worktrees
+**"repository is not enrolled"** — run preflight and enroll/migrate correctly.
+
+**legacy authority is ambiguous** — do not bypass it. Reconcile project instructions, active claims and old ownership writers first.
+
+**overlapping scope/claim rejected** — another assignment owns that path or a parent/child path. Choose independent work or perform an authorized handoff.
+
+**session is BLOCKED** — inspect validation/execution evidence and repair the existing assignment. Do not steal its scope.
+
+**wrong worktree** — use the exact worktree returned by the scheduler/start command.
+
+**state/runtime folders show as untracked** — do not accidentally commit them to product code; add repository-appropriate ignore rules.
+
+**Go tests fail in this repository** — stop and resolve that before using the runtime for production work.
+
+## 15. Updating the orchestrator
+
+Because one clone can serve multiple target projects:
+
+```bash
+cd ~/Projects/multi-agent-orchestrator
+git switch main
+git pull --ff-only origin main
+go test ./...
 ```
 
-It is also not an OS/container sandbox or a distributed multi-machine lock service.
+Do not overwrite a target project's structured state simply because the orchestrator code was updated.
 
----
+## 16. What this release does and does not guarantee
 
-## 22. Recommended first real-world test
+It provides:
 
-Do not begin with four agents editing a large production feature.
+- single acknowledged local coordination authority;
+- exclusive hierarchical scopes;
+- isolated Git branches/worktrees;
+- durable objective/task reservations;
+- assignment attempt/generation fencing;
+- guarded execution and heartbeats;
+- result/evidence collection;
+- consolidated human review;
+- human-controlled integration.
 
-Start with a small repository and two independent tasks.
+It does not provide:
 
-Example:
-
-```text
-Codex
-Feature: add-health-endpoint
-Scope: backend/health
-
-Claude Code
-Feature: update-health-docs
-Scope: docs/health
-```
-
-Confirm that:
-
-- both sessions register;
-- both claims appear;
-- separate worktrees are created;
-- both agents can work independently;
-- overlapping claims are rejected;
-- heartbeats update;
-- validation evidence is recorded;
-- successful completion releases the correct claim;
-- each branch can be pushed and reviewed normally.
-
-After that works, increase to three or four simultaneous agents.
-
----
-
-## Quick daily checklist
-
-1. Pull/clone the target project.
-2. Update its default branch.
-3. Break the work into non-overlapping features.
-4. Run `--start` once for each agent assignment.
-5. Save each returned session ID and worktree.
-6. Open each coding agent in its own worktree.
-7. Give every agent the activation protocol and its exact assignment.
-8. Monitor `agentmeeting.md` and refresh heartbeats.
-9. Keep every agent inside its claimed scope.
-10. Run the project's real validation before completion.
-11. Push one feature branch and PR per feature.
-12. Verify CI on the exact PR head.
-13. Merge only through the authorized integration workflow.
-14. Start the next task from the current base.
-
----
+- automatic discovery of already-open coding-agent windows;
+- a container/VM security boundary;
+- distributed locking across different machines;
+- automatic GitHub merge/deployment;
+- proof that an agent's code is correct merely because it completed.
 
 ## Core mental model
 
-Remember these three rules:
-
 ```text
-The activation prompt teaches the protocol.
-
-The Go runtime enforces local coordination.
-
-GitHub remains the integration and review gate.
+You define the objective
+        ↓
+ORCHESTRATOR owns coordination
+        ↓
+agents receive isolated eligible work
+        ↓
+agents implement + validate + push
+        ↓
+results/evidence are collected
+        ↓
+AWAITING_REVIEW
+        ↓
+you approve or request changes
+        ↓
+authorized GitHub integration
 ```
 
-And the ownership invariant remains:
-
-```text
-One feature → one owner → one branch → one isolated worktree.
-```
-
-
-## Single-authority enrollment note
-
-For new enrollments, ORCHESTRATOR is the sole managed coordination authority and
-the user remains final integration/merge authority. The runtime creates
-`multi-agent-orchestrator/state.json` as versioned structured local state.
-Markdown coordination files remain readable history/projection during the
-migration.
-
-If the target already contains operational ORCHESTRATOR Markdown session or
-claim rows but has no structured state, activation fails closed instead of
-creating an empty authority store. Reconcile/migrate that ownership first.
-Likewise, project-specific claim tools must not run as a second independent
-ownership authority; preserve their non-coordination functions and reconcile
-their coordination behavior before enrollment.
-
-This foundation does not yet provide autonomous task scheduling or process
-supervision. See `docs/single-authority-orchestration.md`.
+The activation prompt teaches the protocol. The Go runtime enforces local coordination. Git/GitHub remain the integration boundary.
