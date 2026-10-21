@@ -473,3 +473,23 @@ objective/task completion is not yet stored transactionally in structured state,
 parallel controllers can still race between eligibility inspection and the existing
 claim operation. Durable objective state and atomic acquire-next transactions are the
 next hardening step before claiming unattended multi-worker scheduling.
+
+
+### Durable objective scheduler
+
+Objective plans are now materialized into structured state. Acquisition runs under the
+structured-state lock, persists the objective and task definitions, selects one eligible
+task, advances its attempt counter, creates an assignment generation, and reserves that
+task before the normal agent/worktree start path runs. A second controller therefore
+cannot legitimately reserve the same task from the same state store.
+
+Task completion is generation-fenced: the objective ID, task ID, controller-generated
+token, bound session, and assignment generation must all match before a task can become
+COMPLETE. When every persisted task for an objective is complete, the objective becomes
+COMPLETE as well. Failed start attempts are retained as BLOCKED rather than silently
+forgotten.
+
+The structured-state transaction cannot include Git worktree creation or Markdown ledger
+writes. Acquisition therefore uses a durable reservation followed by those external
+operations and records a BLOCKED rollback state if startup fails. This is restart-visible
+intent, not a claim that filesystem/Git operations are database-atomic.
