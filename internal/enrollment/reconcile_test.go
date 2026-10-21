@@ -31,7 +31,7 @@ func TestReconcileAcceptsExplicitSoleAuthorityInstruction(t *testing.T){
 }
 func TestReconcileStillRejectsPartialAuthorityInstruction(t *testing.T){
 	d:=legacyRepo(t)
-	instruction:="The ORCHESTRATOR is the sole authority for claims. Only Emmanuel merges to main.\n"
+	instruction:="Agents must claim scopes before editing. The ORCHESTRATOR is the sole authority for claims. Only Emmanuel merges to main.\n"
 	if e:=os.WriteFile(filepath.Join(d,"AGENTS.md"),[]byte(instruction),0644);e!=nil{t.Fatal(e)}
 	r,e:=Reconcile(d);if e!=nil{t.Fatal(e)};if len(r.Ambiguous)==0{t.Fatal("expected unfenced legacy writer ambiguity")}
 }
