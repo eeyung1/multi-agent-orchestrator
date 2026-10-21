@@ -1,5 +1,8 @@
 # LangGraph Multi-Agent Software Development Orchestrator
 
+> **New user?** Start with [setup.md](setup.md). It covers installation, repository enrollment, legacy-authority reconciliation, multiple isolated agents, objective scheduling, result collection, and the human review gate from a clean machine.
+
+
 A planner delegates single-file tasks to parallel frontend/backend agents. Validation writes artifacts through workspace boundary checks and reports failures. Validation does not run generated tests or assess code correctness.
 
 ## Universal agent activation protocol
