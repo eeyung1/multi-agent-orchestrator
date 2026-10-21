@@ -21,6 +21,8 @@ func Run(req Request)(Result,error){
 	if strings.TrimSpace(req.Command.Program)=="" { return Result{},fmt.Errorf("agent program is required") }
 	info,err:=os.Stat(req.Worktree);if err!=nil||!info.IsDir(){return Result{},fmt.Errorf("worktree is not a directory: %s",req.Worktree)}
 	if req.Timeout<=0{req.Timeout=30*time.Minute}
+	if req.HeartbeatInterval<=0{req.HeartbeatInterval=30*time.Second}
+	if err:=coordination.VerifyExecution(req.Primary,req.SessionID,req.Worktree);err!=nil{return Result{},fmt.Errorf("execution ownership check: %w",err)}
 	ctx,cancel:=context.WithTimeout(context.Background(),req.Timeout);defer cancel()
 	cmd:=exec.CommandContext(ctx,req.Command.Program,req.Command.Args...)
 	cmd.Dir=req.Worktree
