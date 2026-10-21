@@ -56,6 +56,23 @@ func main() {
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
 
+	if preflight {
+		report, err := enrollment.Preflight(workspace)
+		if err != nil { fail(err) }
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil { fail(err) }
+		fmt.Println(string(data))
+		return
+	}
+	if enroll {
+		report, err := enrollment.Enroll(workspace, enrollment.Disposition(enrollmentDisposition), enrollmentProvenance)
+		if err != nil { fail(err) }
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil { fail(err) }
+		fmt.Println(string(data))
+		return
+	}
+
 	if fullRun {
 		result,err:=runflow.Run(runflow.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base,AgentCommand:execution.Command{Program:agentProgram,Args:agentArgs},Validate:execution.Command{Program:validateProgram,Args:validateArgs},Timeout:timeout})
 		if err!=nil { fail(err) }
