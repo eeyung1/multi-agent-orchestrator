@@ -21,6 +21,7 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/providers"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/recon"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/review"
@@ -75,6 +76,9 @@ func Admit(workspace string, plan objective.Plan, c Config, r recon.Report, huma
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	if err := c.ValidateAdapters(workspace); err != nil {
+		return err
+	}
 	if strings.TrimSpace(human) == "" {
 		return errors.New("explicit human plan authorization is required")
 	}
@@ -115,11 +119,15 @@ func Admit(workspace string, plan objective.Plan, c Config, r recon.Report, huma
 			}
 		}
 	}
-	return scheduler.Register(primary, plan, state.Objective{PlanDigest: scheduler.PlanDigest(plan), PolicyDigest: digest(c), ReconDigest: r.InstructionDigest, AuthorizedBy: human, BaseSHA: r.Head})
+	plannerID, workerIDs := c.ProviderSelection()
+	return scheduler.Register(primary, plan, state.Objective{PlanDigest: scheduler.PlanDigest(plan), PolicyDigest: digest(c), ReconDigest: r.InstructionDigest, AuthorizedBy: human, BaseSHA: r.Head, PlannerProvider: plannerID, WorkerProviders: workerIDs})
 }
 
 func Run(ctx context.Context, workspace, objectiveID string, c Config) (Report, error) {
 	if err := c.Validate(); err != nil {
+		return Report{}, err
+	}
+	if err := c.ValidateAdapters(workspace); err != nil {
 		return Report{}, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -274,6 +282,9 @@ func runAssignment(ctx context.Context, primary string, plan objective.Plan, a s
 
 func execute(ctx context.Context, primary string, plan objective.Plan, a scheduler.Result, c Config, r recon.Report, authorized state.Objective, feedback string) error {
 	guard := func() error {
+		if err := c.ValidateAdapters(primary); err != nil {
+			return err
+		}
 		if err := enrollment.RequireEnrolled(primary); err != nil {
 			return err
 		}
@@ -307,6 +318,10 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 	}
 	wc := WorkerContext{Protocol: "ORCHESTRATOR is the sole authority. Execute only this task in this worktree/scope. Do not edit coordination state, acquire other work, merge, push, deploy, or self-authorize. Follow supplied instructions. Commit only owned product changes locally without co-author trailers. Return blockers for missing permission/dependencies; never release or transfer ownership yourself. The controller runs configured validation and collects results.", Objective: plan.Objective, Task: a.Task, Session: a.SessionID, Token: a.Token, Generation: a.AssignmentGeneration, Worktree: a.Worktree, Branch: a.Branch, Instructions: r.Instructions}
 	wc.Feedback = feedback
+	w := c.Workers[a.Task.Capability]
+	if w.Adapter != "" {
+		wc.Protocol = "ORCHESTRATOR is the sole authority. Implement only the assigned task inside the exact worktree/scope. Follow supplied project instructions. Leave changes uncommitted: the Go controller checks owned paths and makes the local feature commit. Do not stage, commit, push, merge, deploy, edit shared coordination state, acquire tasks, or grant yourself permissions. Report blockers rather than bypassing denied operations."
+	}
 	for _, dep := range a.Task.DependsOn {
 		t := s.Tasks[plan.ID+"::"+dep]
 		if t.ResultID != "" {
@@ -314,12 +329,21 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 		}
 	}
 	b, _ := json.Marshal(wc)
-	w := c.Workers[a.Task.Capability]
 	args := make([]string, len(w.Args))
 	for i, arg := range w.Args {
 		args[i] = strings.ReplaceAll(arg, "{prompt}", string(b))
 	}
+	if w.Adapter != "" {
+		var err error
+		args, err = providers.WorkerArgs(w.Adapter)
+		if err != nil {
+			return err
+		}
+	}
 	req := execution.Request{Primary: primary, Worktree: a.Worktree, SessionID: a.SessionID, Command: execution.Command{Program: w.Program, Args: args}, Context: ctx, Guard: guard, Input: string(b), Timeout: time.Duration(c.TimeoutSeconds) * time.Second, HeartbeatInterval: time.Duration(c.HeartbeatSeconds) * time.Second, RedactArguments: true}
+	if w.Adapter != "" {
+		req.Environment = providers.Environment(primary)
+	}
 	if _, err := execution.Run(req); err != nil {
 		return err
 	}
@@ -328,6 +352,26 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 		return err
 	}
 	task := s.Tasks[plan.ID+"::"+a.Task.ID]
+	if w.Adapter != "" {
+		gitProgram, err := providers.ResolveExecutable("git", primary)
+		if err != nil {
+			return err
+		}
+		runGit := func(args ...string) error {
+			gitReq := req
+			gitReq.Command = execution.Command{Program: gitProgram, Args: args}
+			gitReq.Input = ""
+			gitReq.RedactArguments = false
+			result, err := execution.Run(gitReq)
+			if err != nil {
+				return fmt.Errorf("%w: %s", err, result.Output)
+			}
+			return nil
+		}
+		if _, err := review.CommitOwned(task, guard, runGit); err != nil {
+			return err
+		}
+	}
 	head, err := review.CheckOutput(task)
 	if err != nil {
 		return err

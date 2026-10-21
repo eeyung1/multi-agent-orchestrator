@@ -44,14 +44,16 @@ type Claim struct {
 }
 
 type Objective struct {
-	ID           string `json:"id"`
-	Description  string `json:"description"`
-	Status       string `json:"status"`
-	PlanDigest   string `json:"plan_digest,omitempty"`
-	PolicyDigest string `json:"policy_digest,omitempty"`
-	ReconDigest  string `json:"recon_digest,omitempty"`
-	AuthorizedBy string `json:"authorized_by,omitempty"`
-	BaseSHA      string `json:"base_sha,omitempty"`
+	ID              string   `json:"id"`
+	Description     string   `json:"description"`
+	Status          string   `json:"status"`
+	PlanDigest      string   `json:"plan_digest,omitempty"`
+	PolicyDigest    string   `json:"policy_digest,omitempty"`
+	ReconDigest     string   `json:"recon_digest,omitempty"`
+	AuthorizedBy    string   `json:"authorized_by,omitempty"`
+	BaseSHA         string   `json:"base_sha,omitempty"`
+	PlannerProvider string   `json:"planner_provider,omitempty"`
+	WorkerProviders []string `json:"worker_providers,omitempty"`
 }
 
 type Task struct {

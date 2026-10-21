@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"fmt"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/controller"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
@@ -26,6 +27,130 @@ func TestSilenceNeverAuthorizes(t *testing.T) {
 		if yes {
 			t.Fatalf("authorized %q", answer)
 		}
+	}
+}
+
+func TestBuiltInCLIHelper(t *testing.T) {
+	if os.Getenv("ORCHESTRATOR_NATIVE_UI_HELPER") != "1" {
+		return
+	}
+	answer := ""
+	for i, arg := range os.Args {
+		if arg == "--output-last-message" && i+1 < len(os.Args) {
+			answer = os.Args[i+1]
+		}
+	}
+	role := "worker"
+	if answer != "" {
+		role = "planner"
+	}
+	if path := os.Getenv("ORCHESTRATOR_CALLS_FILE"); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = f.WriteString(role + "\n")
+		if closeErr := f.Close(); err != nil || closeErr != nil {
+			t.Fatal(err, closeErr)
+		}
+	}
+	if answer != "" {
+		var r struct {
+			Request planner.Request `json:"request"`
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&r); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(os.Args, " "), "--sandbox read-only") {
+			t.Fatal("planner sandbox missing")
+		}
+		proposal := fmt.Sprintf(`{"plan":{"id":"proposed","objective":%q,"tasks":[{"id":"docs","feature":"docs","description":"Write fixture document","scope":"docs","acceptance_criteria":["Document exists"],"validation":["exists","diff-check"],"capability":"codex"}]}}`, r.Request.Objective)
+		if err := os.WriteFile(answer, []byte(proposal), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if !strings.Contains(strings.Join(os.Args, " "), "--sandbox workspace-write") {
+		t.Fatal("worker sandbox missing")
+	}
+	var w controller.WorkerContext
+	if err := json.NewDecoder(os.Stdin).Decode(&w); err != nil {
+		t.Fatal(err)
+	}
+	if w.Task.Scope != "docs" || w.Session == "" || w.Generation == 0 || w.Token == "" {
+		t.Fatal("assignment context missing")
+	}
+	if err := os.MkdirAll("docs", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("docs/readme.txt", []byte("Fixture document\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDynamicCLISelectionAndRestartWithoutJSONProviderEditing(t *testing.T) {
+	d := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = d
+		b, e := c.CombinedOutput()
+		if e != nil {
+			t.Fatalf("%v %s", e, b)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	git("init", "-b", "main")
+	git("config", "user.email", "test@example.com")
+	git("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(d, "README.md"), []byte("# Fixture\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "README.md")
+	git("commit", "-m", "Seed")
+	base := git("rev-parse", "main")
+	bin := t.TempDir()
+	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(os.Args[0], "'", "'\"'\"'") + "' -test.run=^TestBuiltInCLIHelper$ -- \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("ORCHESTRATOR_NATIVE_UI_HELPER", "1")
+	calls := filepath.Join(t.TempDir(), "calls")
+	t.Setenv("ORCHESTRATOR_CALLS_FILE", calls)
+	policy := controller.Config{Validators: map[string]execution.Command{"exists": {Program: "test", Args: []string{"-s", "docs/readme.txt"}}, "diff-check": {Program: "git", Args: []string{"diff", "--check", "HEAD~1", "HEAD"}}}, RequiredValidators: []string{"exists", "diff-check"}, MaxWorkers: 2}
+	b, _ := json.Marshal(policy)
+	path := filepath.Join(t.TempDir(), "policy.json")
+	if err := os.WriteFile(path, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run(context.Background(), []string{"--workspace", d, "--config", path, "--planner", "codex", "--workers", "codex"}, strings.NewReader("yes\nWrite a fixture document\nyes\nyes\nleave\n"), &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "Planner activated: Codex") || !strings.Contains(out.String(), "AWAITING_REVIEW") {
+		t.Fatalf("%s", out.String())
+	}
+	s, err := scheduler.Read(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectiveID := ""
+	for id, o := range s.Objectives {
+		objectiveID = id
+		if o.PlannerProvider != "codex" || len(o.WorkerProviders) != 1 {
+			t.Fatalf("%+v", o)
+		}
+	}
+	if err := run(context.Background(), []string{"--workspace", d, "--config", path, "--resume", objectiveID}, strings.NewReader("leave\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	b, err = os.ReadFile(calls)
+	if err != nil || string(b) != "planner\nworker\n" {
+		t.Fatalf("restart invoked agents again: %q %v", b, err)
+	}
+	if git("rev-parse", "main") != base {
+		t.Fatal("dynamic activation integrated work")
 	}
 }
 
