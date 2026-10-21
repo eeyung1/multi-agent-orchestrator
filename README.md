@@ -493,3 +493,22 @@ The structured-state transaction cannot include Git worktree creation or Markdow
 writes. Acquisition therefore uses a durable reservation followed by those external
 operations and records a BLOCKED rollback state if startup fails. This is restart-visible
 intent, not a claim that filesystem/Git operations are database-atomic.
+
+
+## Result collection and human review gate
+
+Validated task outputs can be collected into structured state with `--collect-result`.
+Collection resolves the exact Git `HEAD` from the assigned worktree and binds the
+result to the objective, task, session and assignment generation. Validation evidence,
+artifacts, blockers and known limitations are preserved with the result. Stale sessions
+or generations cannot publish a replacement result.
+
+When every task in an objective has a collected result, the objective becomes
+`AWAITING_REVIEW`, not merged or deployed. `--review-package --objective-id <id>`
+returns the deterministic task/result package for inspection. The human integration
+authority records either `APPROVED` or `CHANGES_REQUESTED` with
+`--review-decision` and `--review-actor`.
+
+Approval is an auditable review decision only. It does not merge branches, push code,
+deploy releases, or grant agents merge authority. Those integration actions remain
+outside this gate and require the user's explicit authorization.
