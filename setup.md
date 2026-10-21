@@ -22,6 +22,104 @@ git --version
 go version
 ```
 
+### If your Go version is too old
+
+This project requires **Go 1.24 or newer**. On some systems, especially machines
+using an older distro/package-manager Go installation, commands such as
+`go test ./...` or `go run ./cmd/orchestrator` may fail with messages similar to:
+
+```text
+go: downloading go1.24...
+go: toolchain not available
+```
+
+or:
+
+```text
+go: download go1.24: toolchain not available
+```
+
+First check what Go executable and version your shell is actually using:
+
+```bash
+which go
+go version
+go env GOTOOLCHAIN
+```
+
+If `go version` is below 1.24, install a current Go release from the official Go
+downloads page for your operating system. After installation, open a new terminal
+and verify that the new executable appears first on `PATH`:
+
+```bash
+which go
+go version
+```
+
+The version must report Go 1.24 or newer before continuing.
+
+#### Linux without sudo: install Go in your home directory
+
+If you cannot replace the system Go installation, install a current Go toolchain
+under your own home directory. Download the appropriate archive from the official
+Go downloads page, then use the downloaded filename below:
+
+```bash
+rm -rf ~/.local/go
+mkdir -p ~/.local
+
+tar -C ~/.local -xzf ~/Downloads/go1.24.x.linux-amd64.tar.gz
+
+echo 'export PATH="$HOME/.local/go/bin:$PATH"' >> ~/.bashrc
+export PATH="$HOME/.local/go/bin:$PATH"
+
+which go
+go version
+```
+
+Replace `go1.24.x.linux-amd64.tar.gz` with the actual current archive you
+downloaded and use the architecture appropriate for your machine.
+
+If `which go` still shows something such as `/usr/bin/go`, your old system Go
+is still taking precedence. Ensure the new Go bin directory is at the **front** of
+`PATH`, then start a new shell:
+
+```bash
+source ~/.bashrc
+hash -r
+which go
+go version
+```
+
+#### Toolchain auto-download setting
+
+With a sufficiently recent bootstrap Go installation, Go can select newer
+toolchains automatically. Check:
+
+```bash
+go env GOTOOLCHAIN
+```
+
+The normal setting is `auto` (or a version with `+auto`). If the user previously
+disabled automatic toolchain selection, restore it:
+
+```bash
+go env -w GOTOOLCHAIN=auto
+```
+
+However, changing `GOTOOLCHAIN` is **not a substitute for fixing an obsolete or
+broken Go installation**. If automatic download still reports `toolchain not
+available`, install Go 1.24+ directly and confirm `go version` before retrying.
+
+Finally:
+
+```bash
+cd ~/Projects/multi-agent-orchestrator
+go test ./...
+```
+
+Do not continue with repository enrollment until these tests pass.
+
 ## 2. Recommended folder layout
 
 Keep the orchestrator beside target projects, not inside them:
