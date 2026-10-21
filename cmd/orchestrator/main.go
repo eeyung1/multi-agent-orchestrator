@@ -25,7 +25,7 @@ import (
 func main() {
 	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram, planFile, completedTasks, objectiveID, taskID, resultBranch, validationEvidence, reviewDecision, reviewActor string
 	var validateArgs, agentArgs stringList
-	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll, acquireNext, collectResult, reviewPackage bool
+	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll, acquireNext, collectResult, reviewPackage, reconcileLegacy, migrateLegacy, acknowledgeLegacy bool
 	var timeout time.Duration
 	var assignmentGeneration uint64
 	var artifacts, blockers, limitations stringList
@@ -57,6 +57,9 @@ func main() {
 	flag.BoolVar(&enroll, "enroll", false, "explicitly enroll repository under ORCHESTRATOR authority")
 	flag.StringVar(&enrollmentDisposition, "enrollment-disposition", "", "enrollment disposition: NATIVE or COMPATIBLE_ADAPTER")
 	flag.StringVar(&enrollmentProvenance, "enrollment-provenance", "", "human/decision provenance for enrollment")
+	flag.BoolVar(&reconcileLegacy, "reconcile-legacy", false, "inventory legacy coordination ownership")
+	flag.BoolVar(&migrateLegacy, "migrate-legacy", false, "establish migrated structured authority after reconciliation")
+	flag.BoolVar(&acknowledgeLegacy, "acknowledge-legacy-history", false, "acknowledge reconciled historical legacy claims")
 	flag.BoolVar(&acquireNext, "acquire-next", false, "acquire the next eligible task from an objective plan")
 	flag.StringVar(&planFile, "plan-file", "", "JSON objective plan file")
 	flag.StringVar(&completedTasks, "completed-tasks", "", "comma-separated completed task IDs")
@@ -76,6 +79,13 @@ func main() {
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if reconcileLegacy {
+		r,err:=enrollment.Reconcile(workspace);if err!=nil{fail(err)};b,_:=json.MarshalIndent(r,"","  ");fmt.Println(string(b));return
+	}
+	if migrateLegacy {
+		r,err:=enrollment.Migrate(workspace,enrollmentProvenance,acknowledgeLegacy);if err!=nil{fail(err)};b,_:=json.MarshalIndent(r,"","  ");fmt.Println(string(b));return
+	}
 
 	if collectResult {
 		r,err:=review.Collect(review.ResultInput{Workspace:workspace,ObjectiveID:objectiveID,TaskID:taskID,SessionID:session,Token:token,Branch:resultBranch,Worktree:worktreePath,Validation:validationEvidence,AssignmentGeneration:assignmentGeneration,Artifacts:artifacts,Blockers:blockers,Limitations:limitations});if err!=nil{fail(err)}

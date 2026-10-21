@@ -512,3 +512,25 @@ authority records either `APPROVED` or `CHANGES_REQUESTED` with
 Approval is an auditable review decision only. It does not merge branches, push code,
 deploy releases, or grant agents merge authority. Those integration actions remain
 outside this gate and require the user's explicit authorization.
+
+
+## Legacy authority reconciliation
+
+Repositories with pre-existing coordination tools must be reconciled before the
+ORCHESTRATOR is treated as the single ownership authority. `--reconcile-legacy`
+inventories recognized legacy coordination writers, reads their historical claim
+ledger when the format is understood, fingerprints the observed authority state,
+and reports ambiguity instead of treating absence from structured state as release.
+
+`--migrate-legacy` is fail-closed. Coordination instructions that still direct
+agents to another writer are ambiguous and must first be explicitly fenced or
+updated. Active/WORKING legacy claims are never auto-released or silently imported;
+they must be quiesced or handed off explicitly. Historical claims require
+`--acknowledge-legacy-history` plus provenance before a fresh structured authority
+state is created with enrollment `MIGRATED`.
+
+Migration records a fingerprint of the reconciled legacy state in authority
+provenance. It does not delete legacy tools or rewrite project instructions
+automatically. Unsupported writers and uncertain ownership remain blockers. This
+preserves the rule: silence, missing Go claims, or an expired heartbeat never imply
+permission to take another agent's work.
