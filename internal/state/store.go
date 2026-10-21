@@ -23,6 +23,7 @@ type Authority struct {
 	Schema       int    `json:"schema"`
 	Generation   uint64 `json:"generation"`
 	Enrollment   string `json:"enrollment"`
+	Provenance   string `json:"provenance,omitempty"`
 	EnrolledUTC  string `json:"enrolled_utc"`
 }
 
