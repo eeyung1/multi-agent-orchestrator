@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"path/filepath"
 	"time"
 
@@ -13,15 +14,17 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
 	runflow "github.com/eeyung1/multi-agent-orchestrator/internal/run"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
 func main() {
-	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram string
+	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram, planFile, completedTasks string
 	var validateArgs, agentArgs stringList
-	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll bool
+	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll, acquireNext bool
 	var timeout time.Duration
 	var enrollmentDisposition, enrollmentProvenance string
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
@@ -51,10 +54,21 @@ func main() {
 	flag.BoolVar(&enroll, "enroll", false, "explicitly enroll repository under ORCHESTRATOR authority")
 	flag.StringVar(&enrollmentDisposition, "enrollment-disposition", "", "enrollment disposition: NATIVE or COMPATIBLE_ADAPTER")
 	flag.StringVar(&enrollmentProvenance, "enrollment-provenance", "", "human/decision provenance for enrollment")
+	flag.BoolVar(&acquireNext, "acquire-next", false, "acquire the next eligible task from an objective plan")
+	flag.StringVar(&planFile, "plan-file", "", "JSON objective plan file")
+	flag.StringVar(&completedTasks, "completed-tasks", "", "comma-separated completed task IDs")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
 	if err != nil { fail(err) }
+
+	if acquireNext {
+		data,err:=os.ReadFile(planFile);if err!=nil{fail(err)}
+		var plan objective.Plan;if err:=json.Unmarshal(data,&plan);err!=nil{fail(err)}
+		done:=map[string]bool{};for _,id:=range strings.Split(completedTasks,","){if id=strings.TrimSpace(id);id!=""{done[id]=true}}
+		result,err:=scheduler.Acquire(scheduler.Request{Workspace:workspace,Agent:agent,Role:role,Base:base,Plan:plan,Completed:done});if err!=nil{fail(err)}
+		out,err:=json.MarshalIndent(result,"","  ");if err!=nil{fail(err)};fmt.Println(string(out));return
+	}
 
 	if preflight {
 		report, err := enrollment.Preflight(workspace)

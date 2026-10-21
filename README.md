@@ -452,3 +452,24 @@ OS/container sandbox and cannot physically prevent an unrestricted same-user
 process from writing elsewhere. Failed workers remain visible through the
 existing `BLOCKED` lifecycle/evidence path rather than silently surrendering
 their ownership.
+
+
+## Objective planning and automatic task acquisition
+
+The controller can now accept a bounded JSON objective plan containing stable task IDs,
+features, repository-relative scopes, priorities and dependencies. It validates the
+dependency graph, rejects invalid or cyclic plans, determines which tasks are eligible,
+filters tasks that conflict with currently represented structured-state claims, and
+selects the highest-priority eligible task deterministically.
+
+Use `--acquire-next --plan-file <plan.json>` to let the controller choose the task.
+The controller generates the claim token instead of requiring the worker/user to invent
+one, then delegates the selected task through the normal enrolled start/worktree
+lifecycle. `--completed-tasks a,b` supplies validated prerequisite task IDs for this
+foundation.
+
+This phase is an acquisition foundation, not yet a persistent autonomous scheduler:
+objective/task completion is not yet stored transactionally in structured state, and
+parallel controllers can still race between eligibility inspection and the existing
+claim operation. Durable objective state and atomic acquire-next transactions are the
+next hardening step before claiming unattended multi-worker scheduling.
