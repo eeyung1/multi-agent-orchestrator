@@ -11,16 +11,17 @@ import (
 	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
 const (
 	coordinationDir = "multi-agent-orchestrator"
-	lockDir         = ".agent-bootstrap-lock"
+	lockDir         = ".agent-coordination-lock"
 )
 
 type Result struct {
-	SessionID      string
-	State          string
+	SessionID       string
+	State           string
 	CoordinationDir string
 }
 
@@ -34,19 +35,31 @@ func Activate(workspace, agent, role string) (Result, error) {
 		return Result{}, fmt.Errorf("workspace is not a directory: %s", root)
 	}
 	primary, err := repository.Primary(root)
-	if err != nil { return Result{}, err }
+	if err != nil {
+		return Result{}, err
+	}
+	repositoryID, err := repository.Identity(root)
+	if err != nil {
+		return Result{}, err
+	}
+	store, err := state.Open(primary, repositoryID)
+	if err != nil {
+		return Result{}, err
+	}
 
 	lock := filepath.Join(primary, lockDir)
 	if err := os.Mkdir(lock, 0o700); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return Result{}, fmt.Errorf("coordination bootstrap is already locked: %s", lock)
+			return Result{}, fmt.Errorf("coordination is already locked: %s", lock)
 		}
 		return Result{}, err
 	}
 	defer os.Remove(lock)
 
 	coord := filepath.Join(primary, coordinationDir)
-	if err := os.MkdirAll(coord, 0o755); err != nil { return Result{}, err }
+	if err := os.MkdirAll(coord, 0o755); err != nil {
+		return Result{}, err
+	}
 
 	session, err := sessionID(agent)
 	if err != nil {
@@ -64,7 +77,20 @@ func Activate(workspace, agent, role string) (Result, error) {
 		return Result{}, err
 	}
 
-	line := fmt.Sprintf("| %s | %s | ACTIVE | %s | activation | - | bootstrap |\n", session, role, now)
+	if err := store.Update(session, "register-session", func(snap *state.Snapshot) error {
+		if _, exists := snap.Sessions[session]; exists {
+			return fmt.Errorf("session already exists: %s", session)
+		}
+		snap.Sessions[session] = state.Session{
+			ID: session, Role: role, State: "ACTIVE",
+			Generation: snap.Authority.Generation + 1,
+		}
+		return nil
+	}); err != nil {
+		return Result{}, err
+	}
+
+	line := fmt.Sprintf("| %s | %s | ACTIVE | %s | activation | - | structured-state |\n", session, role, now)
 	if err := appendFile(filepath.Join(coord, "agentmeeting.md"), line); err != nil {
 		return Result{}, err
 	}

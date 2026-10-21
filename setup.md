@@ -688,3 +688,22 @@ And the ownership invariant remains:
 ```text
 One feature → one owner → one branch → one isolated worktree.
 ```
+
+
+## Single-authority enrollment note
+
+For new enrollments, ORCHESTRATOR is the sole managed coordination authority and
+the user remains final integration/merge authority. The runtime creates
+`multi-agent-orchestrator/state.json` as versioned structured local state.
+Markdown coordination files remain readable history/projection during the
+migration.
+
+If the target already contains operational ORCHESTRATOR Markdown session or
+claim rows but has no structured state, activation fails closed instead of
+creating an empty authority store. Reconcile/migrate that ownership first.
+Likewise, project-specific claim tools must not run as a second independent
+ownership authority; preserve their non-coordination functions and reconcile
+their coordination behavior before enrollment.
+
+This foundation does not yet provide autonomous task scheduling or process
+supervision. See `docs/single-authority-orchestration.md`.

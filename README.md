@@ -381,3 +381,29 @@ The repository CI runs both `go test ./...` and `python -m pytest -q`. The final
 ### Boundary of this milestone
 
 This milestone provides **local/shared-filesystem orchestration**, not a distributed multi-host lock service or OS/container security sandbox. A child process runs with the operating-system permissions of the orchestrator process, and the coordination lock is filesystem-local. Distributed coordination, stronger process/environment isolation, richer durable structured state, and provider-specific executor adapters are future enhancements rather than blockers for the completed local-runtime milestone.
+
+
+## Single-authority orchestration foundation
+
+The next local-runtime milestone establishes **ORCHESTRATOR as the sole managed
+coordination authority for an enrolled project**, while the user remains the
+final integration/merge authority. Repository instructions continue to govern
+build/test/project conventions, but conflicting ownership protocols must be
+reconciled before managed work starts.
+
+New enrollments now create versioned structured local state at
+`multi-agent-orchestrator/state.json`. The store records canonical repository
+identity, authority/schema generation, sessions, claims, and events using a
+locked atomic replacement. Existing operational Markdown state is never treated
+as unowned: initialization fails closed and requires explicit migration when
+legacy session/claim rows are present.
+
+Activation and Markdown coordination use the same coordination lock, removing
+the prior lost-update window between registration and claim rewrites. Markdown
+remains readable history/projection during migration; it is not a source from
+which workers may grant themselves permission.
+
+This is the Phase A/Phase B foundation only. Objective scheduling, automatic
+worker spawning, supervision/recovery, legacy third-party adapters, result/PR
+publication, distributed locking, and OS/container confinement remain later
+gates. See [docs/single-authority-orchestration.md](docs/single-authority-orchestration.md).
