@@ -59,34 +59,34 @@ func main() {
 	if fullRun {
 		result,err:=runflow.Run(runflow.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base,AgentCommand:execution.Command{Program:agentProgram,Args:agentArgs},Validate:execution.Command{Program:validateProgram,Args:validateArgs},Timeout:timeout})
 		if err!=nil { fail(err) }
-		fmt.Printf("agent=%s state=%s branch=%s worktree=%s\\n",result.SessionID,result.State,result.Branch,result.Worktree)
+		fmt.Printf("agent=%s state=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Branch,result.Worktree)
 		return
 	}
 
 	if execute {
 		result,err:=execution.Run(execution.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Command:execution.Command{Program:agentProgram,Args:agentArgs},Timeout:timeout})
 		if err!=nil { fail(err) }
-		fmt.Printf("exit=%d output=%s\\n",result.ExitCode,result.Output)
+		fmt.Printf("exit=%d output=%s\n",result.ExitCode,result.Output)
 		return
 	}
 
 	if complete {
 		result,err:=completion.Complete(completion.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Token:token,Feature:feature,Validate:execution.Command{Program:validateProgram,Args:validateArgs}})
 		if err!=nil { fail(err) }
-		fmt.Printf("state=%s validation=%s\\n",result.State,result.Output)
+		fmt.Printf("state=%s validation=%s\n",result.State,result.Output)
 		return
 	}
 
 	if start {
 		result,err:=workflowrun.Start(workflowrun.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base})
 		if err!=nil { fail(err) }
-		fmt.Printf("agent=%s state=%s claim=%s branch=%s worktree=%s\\n",result.SessionID,result.State,result.Claim,result.Branch,result.Worktree)
+		fmt.Printf("agent=%s state=%s claim=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Claim,result.Branch,result.Worktree)
 		return
 	}
 
 	if createWorktree {
 		result,err:=worktree.Create(primary,feature,base); if err!=nil { fail(err) }
-		fmt.Printf("branch=%s worktree=%s\\n",result.Branch,result.Path); return
+		fmt.Printf("branch=%s worktree=%s\n",result.Branch,result.Path); return
 	}
 
 	if session != "" {
@@ -96,7 +96,7 @@ func main() {
 		}
 		if nextSession != "" {
 			if err:=coordination.Handoff(primary,session,token,nextSession); err!=nil { fail(err) }
-			fmt.Printf("handoff=%s\\n",nextSession); return
+			fmt.Printf("handoff=%s\n",nextSession); return
 		}
 		if heartbeat {
 			if err:=coordination.Heartbeat(primary,session); err!=nil { fail(err) }
@@ -105,12 +105,12 @@ func main() {
 		}
 		if state != "" {
 			if err:=coordination.Transition(primary,session,state); err!=nil { fail(err) }
-			fmt.Printf("state=%s\\n",state)
+			fmt.Printf("state=%s\n",state)
 			return
 		}
 		if feature != "" || scope != "" || token != "" {
 			if err:=coordination.ClaimScope(primary,coordination.Claim{SessionID:session,Feature:feature,Scope:scope,Token:token}); err!=nil { fail(err) }
-			fmt.Printf("claim=%s scope=%s\\n",token,scope)
+			fmt.Printf("claim=%s scope=%s\n",token,scope)
 			return
 		}
 	}
@@ -121,7 +121,7 @@ func main() {
 	}
 	result, err := activation.Activate(workspace, agent, role)
 	if err != nil { fail(err) }
-	fmt.Printf("agent=%s state=%s coordination=%s\\n", result.SessionID, result.State, result.CoordinationDir)
+	fmt.Printf("agent=%s state=%s coordination=%s\n", result.SessionID, result.State, result.CoordinationDir)
 }
 
 func fail(err error) {
