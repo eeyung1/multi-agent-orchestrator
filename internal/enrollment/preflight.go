@@ -136,7 +136,7 @@ func RequireEnrolled(workspace string) error {
 	if err != nil { return err }
 	snap, err := store.Read()
 	if err != nil { return err }
-	if snap.Authority.Enrollment != string(Native) && snap.Authority.Enrollment != string(Compatible) {
+	if snap.Authority.Enrollment != string(Native) && snap.Authority.Enrollment != string(Compatible) && snap.Authority.Enrollment != "MIGRATED" {
 		return fmt.Errorf("repository is not authority-enrolled: %s; run preflight and explicit enrollment", snap.Authority.Enrollment)
 	}
 	return nil
