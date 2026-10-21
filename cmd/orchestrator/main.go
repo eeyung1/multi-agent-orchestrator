@@ -1,7 +1,7 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"\n\t"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +10,7 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"\n\t"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	runflow "github.com/eeyung1/multi-agent-orchestrator/internal/run"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
@@ -19,8 +19,8 @@ import (
 func main() {
 	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram string
 	var validateArgs, agentArgs stringList
-	var heartbeat, release, createWorktree, start, complete, execute, fullRun bool
-	var timeout time.Duration
+	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll bool
+	var timeout time.Duration\n\tvar enrollmentDisposition, enrollmentProvenance string
 	flag.StringVar(&workspace, "workspace", ".", "target project workspace")
 	flag.StringVar(&agent, "agent", "", "agent identity prefix")
 	flag.StringVar(&role, "role", "coding-agent", "agent role")
@@ -44,6 +44,10 @@ func main() {
 	flag.Var(&agentArgs, "agent-arg", "implementation argument; repeat for multiple arguments")
 	flag.DurationVar(&timeout, "timeout", 30*time.Minute, "agent execution timeout")
 	flag.BoolVar(&fullRun, "run", false, "run start, execution, validation and completion end-to-end")
+	flag.BoolVar(&preflight, "preflight", false, "inspect repository coordination authority before enrollment")
+	flag.BoolVar(&enroll, "enroll", false, "explicitly enroll repository under ORCHESTRATOR authority")
+	flag.StringVar(&enrollmentDisposition, "enrollment-disposition", "", "enrollment disposition: NATIVE or COMPATIBLE_ADAPTER")
+	flag.StringVar(&enrollmentProvenance, "enrollment-provenance", "", "human/decision provenance for enrollment")
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
