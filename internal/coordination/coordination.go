@@ -3,6 +3,7 @@ package coordination
 import (
 	"errors"
 	"fmt"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/locking"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,13 +112,11 @@ func Transition(primary, sessionID, state string) error {
 
 func withLock(primary string, fn func() error) error {
 	lock := filepath.Join(primary, lockDir)
-	if err := os.Mkdir(lock, 0o700); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("coordination is locked: %s", lock)
-		}
+	release, err := locking.Acquire(lock)
+	if err != nil {
 		return err
 	}
-	defer os.Remove(lock)
+	defer release()
 	return fn()
 }
 
@@ -258,26 +257,48 @@ func claimLines(data []byte) []string {
 	return strings.Split(text[start:], "\n")
 }
 
-
 func VerifyExecution(primary, sessionID, worktree string) error {
 	return withLock(primary, func() error {
 		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
 		data, err := os.ReadFile(path)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		lines := strings.Split(string(data), "\n")
 		for _, line := range lines {
-			if !strings.HasPrefix(line, "| "+sessionID+" |") { continue }
+			if !strings.HasPrefix(line, "| "+sessionID+" |") {
+				continue
+			}
 			parts := strings.Split(line, "|")
-			if len(parts) < 9 { return fmt.Errorf("malformed agent row for %s", sessionID) }
-			if strings.TrimSpace(parts[3]) != "WORKING" { return fmt.Errorf("session is not WORKING: %s", strings.TrimSpace(parts[3])) }
+			if len(parts) < 9 {
+				return fmt.Errorf("malformed agent row for %s", sessionID)
+			}
+			if strings.TrimSpace(parts[3]) != "WORKING" {
+				return fmt.Errorf("session is not WORKING: %s", strings.TrimSpace(parts[3]))
+			}
 			assignment := strings.TrimSpace(parts[6])
-			if assignment == "" || !strings.Contains(assignment, " @ ") { return fmt.Errorf("session has no bound worktree assignment") }
+			if assignment == "" || !strings.Contains(assignment, " @ ") {
+				return fmt.Errorf("session has no bound worktree assignment")
+			}
 			assigned := strings.TrimSpace(strings.SplitN(assignment, " @ ", 2)[1])
-			got, err := filepath.Abs(worktree); if err != nil { return err }
-			want, err := filepath.Abs(assigned); if err != nil { return err }
-			if filepath.Clean(got) != filepath.Clean(want) { return fmt.Errorf("worktree does not match session assignment") }
-			claims, err := sessionClaimRows(data, sessionID); if err != nil { return err }
-			if len(claims) == 0 { return fmt.Errorf("session has no active claims") }
+			got, err := filepath.Abs(worktree)
+			if err != nil {
+				return err
+			}
+			want, err := filepath.Abs(assigned)
+			if err != nil {
+				return err
+			}
+			if filepath.Clean(got) != filepath.Clean(want) {
+				return fmt.Errorf("worktree does not match session assignment")
+			}
+			claims, err := sessionClaimRows(data, sessionID)
+			if err != nil {
+				return err
+			}
+			if len(claims) == 0 {
+				return fmt.Errorf("session has no active claims")
+			}
 			return nil
 		}
 		return fmt.Errorf("agent session not found: %s", sessionID)

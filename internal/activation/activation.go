@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eeyung1/multi-agent-orchestrator/internal/locking"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
@@ -48,13 +49,11 @@ func Activate(workspace, agent, role string) (Result, error) {
 	}
 
 	lock := filepath.Join(primary, lockDir)
-	if err := os.Mkdir(lock, 0o700); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return Result{}, fmt.Errorf("coordination is already locked: %s", lock)
-		}
+	release, err := locking.Acquire(lock)
+	if err != nil {
 		return Result{}, err
 	}
-	defer os.Remove(lock)
+	defer release()
 
 	coord := filepath.Join(primary, coordinationDir)
 	if err := os.MkdirAll(coord, 0o755); err != nil {
