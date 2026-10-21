@@ -42,6 +42,26 @@ type Claim struct {
 	Generation uint64 `json:"generation"`
 }
 
+type Objective struct {
+	ID string `json:"id"`
+	Description string `json:"description"`
+	Status string `json:"status"`
+}
+
+type Task struct {
+	ID string `json:"id"`
+	ObjectiveID string `json:"objective_id"`
+	Feature string `json:"feature"`
+	Scope string `json:"scope"`
+	DependsOn []string `json:"depends_on,omitempty"`
+	Priority int `json:"priority,omitempty"`
+	Status string `json:"status"`
+	Attempt uint64 `json:"attempt"`
+	AssignmentGeneration uint64 `json:"assignment_generation"`
+	Token string `json:"token,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+}
+
 type Event struct {
 	ID         string `json:"id"`
 	Actor      string `json:"actor"`
@@ -54,6 +74,8 @@ type Snapshot struct {
 	Authority Authority          `json:"authority"`
 	Sessions  map[string]Session `json:"sessions"`
 	Claims    map[string]Claim   `json:"claims"`
+	Objectives map[string]Objective `json:"objectives"`
+	Tasks map[string]Task `json:"tasks"`
 	Events    []Event            `json:"events"`
 }
 
@@ -79,7 +101,7 @@ func Open(primary, repositoryID string) (*Store, error) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		initial := Snapshot{
 			Authority: Authority{RepositoryID: repositoryID, Protocol: ProtocolVersion, Schema: SchemaVersion, Generation: 1, Enrollment: "FOUNDATION", EnrolledUTC: now},
-			Sessions: map[string]Session{}, Claims: map[string]Claim{}, Events: []Event{},
+			Sessions: map[string]Session{}, Claims: map[string]Claim{}, Objectives: map[string]Objective{}, Tasks: map[string]Task{}, Events: []Event{},
 		}
 		if err := s.withLock(func() error {
 			if _, err := os.Stat(s.path); err == nil { return nil }
@@ -103,6 +125,8 @@ func (s *Store) Read() (Snapshot, error) {
 	var snap Snapshot
 	if err := json.Unmarshal(data, &snap); err != nil { return Snapshot{}, fmt.Errorf("decode orchestrator state: %w", err) }
 	if snap.Sessions == nil || snap.Claims == nil { return Snapshot{}, errors.New("malformed orchestrator state: missing maps") }
+	if snap.Objectives == nil { snap.Objectives = map[string]Objective{} }
+	if snap.Tasks == nil { snap.Tasks = map[string]Task{} }
 	return snap, nil
 }
 
