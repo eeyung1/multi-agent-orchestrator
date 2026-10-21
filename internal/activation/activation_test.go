@@ -30,7 +30,7 @@ func TestActivateBootstrapsAndRegisters(t *testing.T) {
 	if !strings.Contains(string(meeting), result.SessionID) || !strings.Contains(string(meeting), "| backend | ACTIVE |") {
 		t.Fatalf("agent registration missing: %s", meeting)
 	}
-	for _, name := range []string{"coordination.md", "resolution.md"} {
+	for _, name := range []string{"coordination.md", "resolution.md", "state.json"} {
 		if _, err := os.Stat(filepath.Join(root, coordinationDir, name)); err != nil {
 			t.Fatalf("%s not created: %v", name, err)
 		}
@@ -84,5 +84,17 @@ func initGit(t *testing.T, root string) {
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
+	}
+}
+
+func TestActivateRefusesLegacyOperationalStateWithoutStructuredMigration(t *testing.T) {
+	root := t.TempDir()
+	initGit(t, root)
+	coord := filepath.Join(root, coordinationDir)
+	if err := os.MkdirAll(coord, 0o755); err != nil { t.Fatal(err) }
+	legacy := "# Agent Meeting\n\n| legacy-session | coding-agent | WORKING | now | feature | branch | token |\n"
+	if err := os.WriteFile(filepath.Join(coord, "agentmeeting.md"), []byte(legacy), 0o644); err != nil { t.Fatal(err) }
+	if _, err := Activate(root, "Codex", "backend"); err == nil {
+		t.Fatal("expected activation to fail closed on unmigrated operational state")
 	}
 }
