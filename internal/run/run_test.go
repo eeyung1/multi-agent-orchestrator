@@ -16,8 +16,7 @@ func repo(t *testing.T) string {
 	t.Helper(); root:=t.TempDir()
 	cmds:=[][]string{{"init","-b","main"},{"config","user.email","test@example.com"},{"config","user.name","Test"}}
 	for _,args:=range cmds { git(t,root,args...) }
-	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x
-"),0o644); err!=nil { t.Fatal(err) }
+	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\\n"),0o644); err!=nil { t.Fatal(err) }
 	git(t,root,"add","README.md"); git(t,root,"commit","-m","init")
 	if _,err:=enrollment.Enroll(root,enrollment.Native,"test-authority");err!=nil{t.Fatal(err)}
 	return root
