@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"\n\t"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 )
 
