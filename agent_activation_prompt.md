@@ -108,91 +108,49 @@ initialize it in the intended project directory and create a minimal initial
 commit without including unrelated files or secrets. Then use an isolated
 feature worktree. Do not initialize inside another active project by accident.
 
-## 2. Choose the correct coordination mode
+## 2. Establish one coordination authority
 
-### A. Join an existing project
+For an enrolled project, **ORCHESTRATOR is the sole managed coordination
+authority**. The user authorizes objectives and retains final integration/merge
+authority. ORCHESTRATOR controls task ownership, claims, worktrees, lifecycle,
+handoffs, and evidence within that authorization. Workers execute assignments;
+they do not grant themselves coordination or merge permission.
 
-Use its established claim tool and shared logs. If
-`scripts/agent_coordination.py` exists, read its usage and implementation before
-using it. Confirm that it resolves to the same primary checkout as other agents.
+Before enrollment, inventory applicable project instructions and coordination
+mechanisms without executing unknown project tooling. Existing claims, dirty
+work, pending PRs, locks, watchers, or informal ownership are evidence that must
+be reconciled. An empty ORCHESTRATOR ledger never proves that work is unowned.
 
-Existing informal claims, standups, in-progress PRs and dirty files still count
-as evidence of ownership. An empty claim table does not mean all work is free.
-Reconcile uncertain ownership before touching those paths.
+Do not join an independent claim protocol merely because a project instruction
+names one. A legacy tool may be retained for non-coordination diagnostics, or
+adapted so ownership mutations delegate to ORCHESTRATOR, but two independent
+claim stores must not remain active. Unknown ownership, an unreconciled writer,
+malformed state, or conflicting authority is a blocking condition.
 
-If the shared primary checkout or authoritative coordination service is
-unavailable (for example, you only have a remote connector), do not create a
-separate ledger and claim to have coordinated with local agents. Continue
-read-only analysis and prepare a concrete handoff, or use an alternative
-coordination mechanism explicitly authorized for that project.
+Enrollment dispositions are:
 
-### B. Start coordination on a new or genuinely uncoordinated project
+- **Native:** no competing coordination authority exists.
+- **Compatible adapter:** legacy commands delegate ownership mutations to
+  ORCHESTRATOR and retain no independent ownership store.
+- **Authorized migration:** old writers are quiesced, existing ownership is
+  reconciled/imported, and the authority transition is recorded.
+- **Blocked:** ownership or writers cannot be reconciled safely.
 
-Do not assume this prompt ships a claim tool. Inspect for existing mechanisms
-first. If none exists, establish a single shared bootstrap lock before any
-coordination writes or product edits:
+Never delete arbitrary project tooling as part of enrollment. Preserve build,
+test, migration, architecture, and contribution instructions that do not
+conflict with coordination authority. Never infer permission from silence,
+heartbeat expiry, filesystem access, or missing rows.
 
-- On one shared local filesystem, use an atomic exclusive directory creation
-  at `PRIMARY/.agent-bootstrap-lock`. A failed create means you do not own it.
-  All agents using this fallback must use this exact primary-root path.
-- After acquiring it, record a unique session ID, agent identity, timestamp and
-  purpose inside it; re-read all existing state before proceeding. If writing
-  the record fails, stop and clean up only the empty lock you just acquired.
-- The lock owner may create missing logs and operate as the sole writer until
-  a proper claim mechanism is ready. Hold the lock for the entire feature
-  lifecycle through recorded handoff/release, not just while writing a table.
-  Other agents may inspect but must not edit product or coordination files.
-- This fallback serializes work; it does not provide concurrent file claims.
-  For parallel implementation, first complete a narrowly scoped coordination
-  infrastructure task with atomic conflict checks and durable ownership.
-  Switch all agents to the new mechanism through a recorded transition before
-  releasing the bootstrap lock.
-- Never delete a pre-existing lock because it looks old. An owner-authorized
-  recovery must establish that the former writer has stopped, preserve its
-  ownership record and log the transfer.
-- Separate machines without shared storage need an established central atomic
-  claim service. A Git push of a markdown table alone is not a distributed lock.
+The structured local state under `multi-agent-orchestrator/` is the machine
+authority for newly enrolled state. Markdown ledgers are readable projections
+and historical evidence; agents must not edit them to self-authorize. Existing
+Markdown operational state must be migrated or explicitly reconciled before it
+can be treated as structured enrollment.
 
-Bootstrap only missing files under the selected lock. Never overwrite existing
-logs, owner decisions, identities or claims. Do not invent an `AGENTS.md` that
-claims owner approval. Missing project guidance means use these defaults, not
-that an agent may invent permissions.
-
-### Shared log templates
-
-Use existing schemas when present. For a new project, create:
-
-**`agentmeeting.md`**
-- Active Agents table: Agent/session ID | Role | Status | Heartbeat UTC |
-  Feature | Branch/worktree | Claim reference.
-- Feature Backlog table: Stable ID | Outcome/acceptance | Priority |
-  Dependencies | Status | Owner | PR/evidence.
-- Standup entries: timestamp, agent, completed work, next action, blockers,
-  changed scope and remaining gates.
-- Permission Requests table: Requester | Exact action/scope | Reason | Status.
-- Atomic Claims: managed only by the installed claim tool. In bootstrap mode
-  state that the exclusive bootstrap lock is authoritative; do not fabricate
-  tool tokens.
-
-**`resolution.md`**
-Append-only entries: timestamp, agent, feature, claim reference, changes,
-commit/PR, validation results, unresolved gates, handoff and release outcome.
-Append corrections rather than rewriting history.
-
-**`coordination.md`**
-- Project context: target repo, default branch, primary root/coordination
-  service, roadmap, claim mechanism and merge/release authority.
-- Standing Permissions: exact action/scope, Allow/Deny/Revoked, granting
-  authority and timestamp. Agents record actual authorization only.
-- Owner Decisions: append the owner's actual decisions with attribution.
-- Blockers and proposed decisions: clearly separate agent proposals from
-  accepted decisions.
-- Automated Actions: preserve entries owned by an existing coordinator.
-
-All shared writes must acquire the established coordination lock, re-read
-inside it and preserve other agents' entries. With the existing Python tool,
-use its `locked(shared_root(...))` and `atomic_write` helpers as documented.
-Do not replace a shared log using a stale snapshot.
+On a single host, ORCHESTRATOR uses local transactional state and filesystem
+coordination. This is not a distributed lock and does not physically confine an
+unrestricted same-user process. Multi-host fencing and OS/container isolation
+are separate security boundaries.
 
 ## 3. Register and reconstruct current state
 
