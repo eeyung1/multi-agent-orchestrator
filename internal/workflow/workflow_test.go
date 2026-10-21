@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"testing"
+	"testing"\n\n\t"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 )
 
 func TestStartRunsActivationClaimWorktreeAndWorkingTransition(t *testing.T) {
@@ -28,4 +28,16 @@ func TestStartRunsActivationClaimWorktreeAndWorkingTransition(t *testing.T) {
 func run(t *testing.T,dir,name string,args ...string) {
 	t.Helper(); c:=exec.Command(name,args...); c.Dir=dir
 	if out,err:=c.CombinedOutput(); err!=nil { t.Fatalf("%s: %v: %s",name,err,out) }
+}
+
+func TestStartRequiresAuthorityEnrollment(t *testing.T) {
+	root:=t.TempDir()
+	run(t,root,"git","init","-b","main")
+	run(t,root,"git","config","user.email","test@example.com")
+	run(t,root,"git","config","user.name","Test")
+	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\n"),0o644);err!=nil{t.Fatal(err)}
+	run(t,root,"git","add","README.md");run(t,root,"git","commit","-m","init")
+	if _,err:=Start(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"x",Scope:"internal/x",Token:"x",Base:"main"});err==nil{
+		t.Fatal("expected unenrolled start to fail closed")
+	}
 }
