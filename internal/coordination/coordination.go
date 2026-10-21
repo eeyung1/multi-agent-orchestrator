@@ -257,3 +257,29 @@ func claimLines(data []byte) []string {
 	}
 	return strings.Split(text[start:], "\n")
 }
+
+
+func VerifyExecution(primary, sessionID, worktree string) error {
+	return withLock(primary, func() error {
+		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
+		data, err := os.ReadFile(path)
+		if err != nil { return err }
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			if !strings.HasPrefix(line, "| "+sessionID+" |") { continue }
+			parts := strings.Split(line, "|")
+			if len(parts) < 9 { return fmt.Errorf("malformed agent row for %s", sessionID) }
+			if strings.TrimSpace(parts[3]) != "WORKING" { return fmt.Errorf("session is not WORKING: %s", strings.TrimSpace(parts[3])) }
+			assignment := strings.TrimSpace(parts[6])
+			if assignment == "" || !strings.Contains(assignment, " @ ") { return fmt.Errorf("session has no bound worktree assignment") }
+			assigned := strings.TrimSpace(strings.SplitN(assignment, " @ ", 2)[1])
+			got, err := filepath.Abs(worktree); if err != nil { return err }
+			want, err := filepath.Abs(assigned); if err != nil { return err }
+			if filepath.Clean(got) != filepath.Clean(want) { return fmt.Errorf("worktree does not match session assignment") }
+			claims, err := sessionClaimRows(data, sessionID); if err != nil { return err }
+			if len(claims) == 0 { return fmt.Errorf("session has no active claims") }
+			return nil
+		}
+		return fmt.Errorf("agent session not found: %s", sessionID)
+	})
+}

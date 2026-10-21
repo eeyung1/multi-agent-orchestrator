@@ -436,3 +436,19 @@ Enrollment provenance is persisted in structured authority state. Repositories
 with unresolved findings cannot be falsely enrolled as native. Compatibility
 adapters and authorized legacy migration remain explicit later work; until
 reconciled, managed execution fails closed.
+
+
+## Guarded execution and supervision
+
+Managed execution now verifies that the session is `WORKING`, has active
+claims, and is bound to the exact worktree before launching a worker. While the
+worker is running the controller periodically rechecks ownership and refreshes
+the session heartbeat. If ownership is lost, heartbeat publication fails, the
+command times out, or the worker exits unsuccessfully, the result is not
+accepted as successful work.
+
+These guards fence result publication and controller actions; they are not an
+OS/container sandbox and cannot physically prevent an unrestricted same-user
+process from writing elsewhere. Failed workers remain visible through the
+existing `BLOCKED` lifecycle/evidence path rather than silently surrendering
+their ownership.
