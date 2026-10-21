@@ -28,7 +28,11 @@ func Reconcile(workspace string)(Reconciliation,error){
 		if !ok{r.Ambiguous=append(r.Ambiguous,fmt.Sprintf("%s: %s",f.Path,detail));continue}
 		r.Claims=append(r.Claims,claims...)
 	}
-	for _,f:=range report.Findings{if f.Kind=="instruction"{r.Ambiguous=append(r.Ambiguous,fmt.Sprintf("%s: coordination instruction requires explicit fencing/update",f.Path))}}
+	for _,f:=range report.Findings{
+		if f.Kind!="instruction"{continue}
+		ok,detail:=instructionAcknowledgesOrchestrator(filepath.Join(primary,filepath.FromSlash(f.Path)))
+		if !ok{r.Ambiguous=append(r.Ambiguous,fmt.Sprintf("%s: %s",f.Path,detail))}
+	}
 	sort.Strings(r.Ambiguous);sort.Slice(r.Claims,func(i,j int)bool{return r.Claims[i].Token<r.Claims[j].Token})
 	r.Fingerprint=fingerprint(report,r.Claims);return r,nil
 }
@@ -65,4 +69,15 @@ func fingerprint(r Report,c []LegacyClaim)string{parts:=[]string{r.RepositoryID}
 func atomicCreate(path string,data []byte)error{
 	f,err:=os.OpenFile(path,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err!=nil{return err}
 	if _,err=f.Write(data);err!=nil{f.Close();os.Remove(path);return err};if err=f.Sync();err!=nil{f.Close();os.Remove(path);return err};return f.Close()
+}
+
+func instructionAcknowledgesOrchestrator(path string)(bool,string){
+	data,err:=os.ReadFile(path);if err!=nil{return false,err.Error()};text:=strings.ToLower(string(data))
+	sole:=strings.Contains(text,"orchestrator is the sole authority")||strings.Contains(text,"orchestrator is the sole lifecycle")||strings.Contains(text,"orchestrator as the sole")
+	retired:=strings.Contains(text,"retired as an ownership writer")||strings.Contains(text,"legacy ownership commands are disabled")||strings.Contains(text,"must not be used for ownership")
+	mergeBoundary:=strings.Contains(text,"only emmanuel")&&strings.Contains(text,"merge")
+	if !sole{return false,"does not explicitly establish ORCHESTRATOR as sole coordination authority"}
+	if !retired{return false,"does not explicitly retire/fence legacy ownership writers"}
+	if !mergeBoundary{return false,"does not preserve the human merge-authority boundary"}
+	return true,""
 }
