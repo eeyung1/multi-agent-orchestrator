@@ -15,6 +15,7 @@ func TestStartRunsActivationClaimWorktreeAndWorkingTransition(t *testing.T) {
 	run(t,root,"git","config","user.name","Test")
 	if err:=os.WriteFile(filepath.Join(root,"README.md"),[]byte("x\n"),0o644); err!=nil { t.Fatal(err) }
 	run(t,root,"git","add","README.md"); run(t,root,"git","commit","-m","init")
+	if _,err:=enrollment.Enroll(root,enrollment.Native,"test-authority");err!=nil{t.Fatal(err)}
 
 	got,err:=Start(Request{Workspace:root,Agent:"Codex",Role:"backend",Feature:"phase-four",Scope:"internal/phase4",Token:"claim-4",Base:"main"})
 	if err!=nil { t.Fatal(err) }
