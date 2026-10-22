@@ -14,7 +14,7 @@ import (
 )
 
 // Bootstrap proposes familiar test vectors based only on file names. A human
-// must explicitly authorize required checks; discovered scripts are never run.
+// must authorize required checks and any optional preparation; setup runs none.
 func bootstrap(reader *bufio.Reader, out io.Writer, workspace, savePath string, c *controller.Config) error {
 	fmt.Fprintln(out, "No trusted validation policy was found. Required checks must be authorized before work can run.")
 	type preset struct {
@@ -67,7 +67,7 @@ func bootstrap(reader *bufio.Reader, out io.Writer, workspace, savePath string, 
 		args = p.args
 		name = p.name
 	}
-	// A bootstrap executable must come from trusted PATH, not package-local bin
+	// A validation executable must come from trusted PATH, not package-local bin
 	// shims. Advanced explicit custom configuration remains available separately.
 	resolved, err := providers.ResolveExecutable(program, workspace)
 	if err != nil {
@@ -87,10 +87,13 @@ func bootstrap(reader *bufio.Reader, out io.Writer, workspace, savePath string, 
 	if !yes {
 		return fmt.Errorf("required validation policy was not authorized")
 	}
+	if err := preparationPolicy(reader, out, workspace, c); err != nil {
+		return err
+	}
 	if err := c.ValidatePolicy(); err != nil {
 		return err
 	}
-	yes, err = confirm(reader, out, "Save this trusted validation policy for future runs at "+savePath+"? [y/N] ")
+	yes, err = confirm(reader, out, "Save this trusted validation and worktree preparation policy for future runs at "+savePath+"? [y/N] ")
 	if err != nil {
 		return err
 	}
@@ -125,7 +128,43 @@ func bootstrap(reader *bufio.Reader, out io.Writer, workspace, savePath string, 
 	if closeErr != nil {
 		return closeErr
 	}
-	fmt.Fprintln(out, "Trusted validation policy saved.")
+	fmt.Fprintln(out, "Trusted validation and worktree preparation policy saved.")
+	return nil
+}
+
+func preparationPolicy(reader *bufio.Reader, out io.Writer, workspace string, c *controller.Config) error {
+	fmt.Fprintln(out, "Fresh isolated worktrees contain tracked files only; local dependencies may need preparation before a worker starts. No install command is inferred or run during setup.")
+	yes, err := confirm(reader, out, "Configure an optional trusted worktree preparation command? [y/N] ")
+	if err != nil || !yes {
+		return err
+	}
+	program, err := ask(reader, out, "Preparation executable (not a shell command string): ")
+	if err != nil {
+		return err
+	}
+	argJSON, err := ask(reader, out, "Preparation arguments as a JSON array (use [] for no arguments): ")
+	if err != nil {
+		return err
+	}
+	var args []string
+	if err := json.Unmarshal([]byte(argJSON), &args); err != nil || args == nil {
+		return fmt.Errorf("preparation arguments must be a JSON string array")
+	}
+	resolved, err := providers.ResolveTrustedExecutable(program, workspace)
+	if err != nil {
+		return fmt.Errorf("worktree preparation: %w", err)
+	}
+	command := execution.Command{Program: resolved, Args: args}
+	display, _ := json.Marshal(command)
+	fmt.Fprintf(out, "Worktree preparation: %s\nRuns once in each assigned isolated worktree before its worker, with the configured execution timeout and guards.\n", display)
+	yes, err = confirm(reader, out, "Authorize this exact worktree preparation command and arguments? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !yes {
+		return fmt.Errorf("worktree preparation policy was not authorized")
+	}
+	c.WorktreePreparation = []execution.Command{command}
 	return nil
 }
 

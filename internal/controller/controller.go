@@ -251,6 +251,33 @@ func Run(ctx context.Context, workspace, objectiveID string, c Config) (Report, 
 }
 
 func runAssignment(ctx context.Context, primary string, plan objective.Plan, a scheduler.Result, c Config, r recon.Report, authorized state.Objective) error {
+	// Prepare once per new assignment, before any worker or bounded repair. A
+	// preparation failure is a blocker, never a reason to launch a repair worker.
+	guard := assignmentGuard(primary, plan, a, c, authorized)
+	preparationGuard := func() error {
+		if err := guard(); err != nil {
+			return err
+		}
+		return checkWorktreeInstructions(a.Worktree, r)
+	}
+	for i, command := range c.WorktreePreparation {
+		program, err := providers.ResolveTrustedExecutable(command.Program, primary)
+		if err != nil {
+			return fmt.Errorf("worktree preparation command %d: %w", i+1, err)
+		}
+		command.Program = program
+		result, err := execution.Run(execution.Request{
+			Primary: primary, Worktree: a.Worktree, SessionID: a.SessionID,
+			Command: command, Context: ctx,
+			Guard:             preparationGuard,
+			Timeout:           time.Duration(c.TimeoutSeconds) * time.Second,
+			HeartbeatInterval: time.Duration(c.HeartbeatSeconds) * time.Second,
+			Environment:       providers.Environment(primary),
+		})
+		if err != nil {
+			return fmt.Errorf("worktree preparation command %d (%s) failed: %w; output: %s", i+1, commandDisplay(command), err, result.Output)
+		}
+	}
 	feedback := ""
 	for attempt := 0; ; attempt++ {
 		err := execute(ctx, primary, plan, a, c, r, authorized, feedback)
@@ -280,8 +307,8 @@ func runAssignment(ctx context.Context, primary string, plan objective.Plan, a s
 	}
 }
 
-func execute(ctx context.Context, primary string, plan objective.Plan, a scheduler.Result, c Config, r recon.Report, authorized state.Objective, feedback string) error {
-	guard := func() error {
+func assignmentGuard(primary string, plan objective.Plan, a scheduler.Result, c Config, authorized state.Objective) func() error {
+	return func() error {
 		if err := c.ValidateAdapters(primary); err != nil {
 			return err
 		}
@@ -300,17 +327,29 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 		}
 		return nil
 	}
-	if err := guard(); err != nil {
-		return err
-	}
-	// Instructions in the actual isolated checkout must agree with primary recon.
+}
+
+func checkWorktreeInstructions(worktree string, r recon.Report) error {
 	for _, f := range r.Instructions {
 		if !strings.HasPrefix(f.Path, "/") {
-			b, e := readInstruction(a.Worktree, f.Path)
+			b, e := readInstruction(worktree, f.Path)
 			if e != nil || b != f.Content {
 				return fmt.Errorf("assigned worktree instructions differ: %s", f.Path)
 			}
 		}
+	}
+	return nil
+}
+
+func execute(ctx context.Context, primary string, plan objective.Plan, a scheduler.Result, c Config, r recon.Report, authorized state.Objective, feedback string) error {
+	guard := assignmentGuard(primary, plan, a, c, authorized)
+	if err := guard(); err != nil {
+		return err
+	}
+	// Instructions must match before the worker starts; the task may itself be an
+	// authorized edit to those instructions, subject to normal owned-output review.
+	if err := checkWorktreeInstructions(a.Worktree, r); err != nil {
+		return err
 	}
 	s, err := scheduler.Read(primary)
 	if err != nil {

@@ -34,6 +34,21 @@ func TestWorkerHelper(t *testing.T) {
 	if cwd != w.Worktree || w.Session != os.Getenv("ORCHESTRATOR_SESSION_ID") || w.Token == "" || w.Generation == 0 || w.Branch == "" || w.Objective == "" || len(w.Task.AcceptanceCriteria) == 0 || len(w.Instructions) == 0 {
 		t.Fatal("incorrect worker context")
 	}
+	if expected := os.Getenv("ORCHESTRATOR_EXPECT_PREPARATION"); expected != "" {
+		b, err := os.ReadFile(".worktree-preparation")
+		if expected == "none" {
+			if !os.IsNotExist(err) {
+				t.Fatal("unexpected worktree preparation")
+			}
+		} else if err != nil || string(b) != expected {
+			t.Fatalf("worker started before preparation completed: %q %v", b, err)
+		}
+	}
+	if path := os.Getenv("ORCHESTRATOR_WORKER_STARTED"); path != "" {
+		if err := os.WriteFile(path, []byte(cwd), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if barrier := os.Getenv("ORCHESTRATOR_BARRIER"); barrier != "" {
 		if err := os.WriteFile(filepath.Join(barrier, w.Task.ID), []byte("started"), 0600); err != nil {
 			t.Fatal(err)

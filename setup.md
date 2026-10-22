@@ -53,8 +53,12 @@ The Go ORCHESTRATOR is the coordination authority. It manages enrollment, sessio
    A missing policy starts an explicit validation bootstrap. Choose the project's
    required checks (Go/Node/Python suggestions are based on file names), or enter
    a trusted executable plus a JSON argument array. Confirm the mandatory checks
-   and optionally save the policy in your user config. No checks are silently
-   omitted and nothing is executed during bootstrap. Project instructions may
+   and optionally authorize a worktree preparation executable and JSON arguments.
+   Fresh worktrees contain tracked files, so local dependencies such as
+   `frontend/node_modules` must be prepared separately when needed. No install
+   command is inferred or executed without authorization. Save preparation
+   alongside validation in your user config if desired. No checks are silently
+   omitted and nothing is executed during policy setup. Project instructions may
    require more gates than the suggested preset: use custom checks/policy for
    those repositories. Do not substitute a weak check to shorten onboarding.
 7. Describe one objective. Approve genuine enrollment/legacy-authority decisions,
@@ -126,6 +130,15 @@ Edit the example for your environment:
   select these names but cannot invent executable validation commands.
 - `required_validators`: checks that every task must run. Use this for mandatory
   repository test/build gates; a proposal cannot omit these configured checks.
+- `worktree_preparation`: optional ordered array of structured commands, e.g.
+  `[{"Program":"npm","Args":["--prefix","frontend","ci"]}]` for a project
+  that needs frontend dependencies. Choose commands for your project; there is
+  no default. Executables must resolve from trusted absolute PATH entries or
+  trusted absolute paths; project-local executables/symlinks are excluded.
+  Commands run once per new assignment in its exact isolated worktree before
+  the worker, using execution guards, heartbeats and timeouts. Failure blocks
+  the assignment without launching a worker. Successful preparation is retained
+  during bounded worker repairs. Model proposals cannot define these commands.
 - `allowed_scopes`: optional product-scope ceiling. `.` permits proposals across
   the repository; actual tasks must claim bounded product paths, excluding
   controller/Git metadata. You approve the concrete plan before execution.
