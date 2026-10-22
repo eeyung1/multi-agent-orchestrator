@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
@@ -155,6 +156,74 @@ func Acquire(req Request) (Result, error) {
 		return Result{}, fmt.Errorf("bind task assignment: %w", err)
 	}
 	return Result{Task: selected, SessionID: started.SessionID, State: started.State, Branch: started.Branch, Worktree: started.Worktree, Token: token, Attempt: attempt, AssignmentGeneration: generation}, nil
+}
+
+
+func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration uint64) error {
+	primary, err := repository.Primary(workspace)
+	if err != nil {
+		return err
+	}
+	id, err := repository.Identity(primary)
+	if err != nil {
+		return err
+	}
+	store, err := state.Open(primary, id)
+	if err != nil {
+		return err
+	}
+	snap, err := store.Read()
+	if err != nil {
+		return err
+	}
+	key := taskKey(objectiveID, taskID)
+	blocked, ok := snap.Tasks[key]
+	if !ok {
+		return errors.New("task not found")
+	}
+	if blocked.Status != "BLOCKED" {
+		return fmt.Errorf("recovery requires BLOCKED task, got %s", blocked.Status)
+	}
+	if blocked.AssignmentGeneration != expectedGeneration {
+		return errors.New("stale recovery authorization")
+	}
+	if blocked.Token == "" || blocked.SessionID == "" {
+		return errors.New("blocked assignment is missing ownership identity")
+	}
+	// Retire operational ownership first. If the structured update below fails,
+	// the task remains BLOCKED and this retirement is idempotent for a safe retry.
+	if err := coordination.RetireBlockedSession(primary, blocked.SessionID, blocked.Token); err != nil {
+		return fmt.Errorf("retire blocked assignment: %w", err)
+	}
+	return store.Update("ORCHESTRATOR", "authorize-recovery", func(s *state.Snapshot) error {
+		current, ok := s.Tasks[key]
+		if !ok {
+			return errors.New("task not found")
+		}
+		if current.Status != "BLOCKED" ||
+			current.AssignmentGeneration != expectedGeneration ||
+			current.Token != blocked.Token ||
+			current.SessionID != blocked.SessionID {
+			return errors.New("blocked assignment changed during recovery")
+		}
+		current.AssignmentHistory = append(current.AssignmentHistory, state.AssignmentHistory{
+			Attempt: current.Attempt, AssignmentGeneration: current.AssignmentGeneration,
+			Token: current.Token, SessionID: current.SessionID, Branch: current.Branch,
+			Worktree: current.Worktree, BaseSHA: current.BaseSHA, Blocker: current.Blocker,
+		})
+		current.Status = "PENDING"
+		current.Token = ""
+		current.SessionID = ""
+		current.Branch = ""
+		current.Worktree = ""
+		current.BaseSHA = ""
+		current.Blocker = ""
+		current.ResultID = ""
+		current.ValidatedHead = ""
+		current.ValidationEvidence = ""
+		s.Tasks[key] = current
+		return nil
+	})
 }
 
 func Complete(workspace, objectiveID, taskID, token, sessionID string, generation uint64) error {

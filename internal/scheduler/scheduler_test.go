@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 )
@@ -27,4 +28,50 @@ func TestCompleteRejectsStaleGeneration(t *testing.T){
 	r,err:=Acquire(Request{Workspace:d,Agent:"one",Role:"coding-agent",Base:"main",Plan:p});if err!=nil{t.Fatal(err)}
 	if err:=Complete(d,"obj","a",r.Token,r.SessionID,r.AssignmentGeneration+1);err==nil{t.Fatal("expected stale generation rejection")}
 	if err:=Complete(d,"obj","a",r.Token,r.SessionID,r.AssignmentGeneration);err!=nil{t.Fatal(err)}
+}
+
+func TestAuthorizeRecoveryFencesBlockedAssignmentAndReacquires(t *testing.T) {
+	d := initRepo(t)
+	p := objective.Plan{ID: "obj", Objective: "ship", Tasks: []objective.Task{{ID: "a", Feature: "a", Scope: "backend"}}}
+	first, err := Acquire(Request{Workspace: d, Agent: "one", Role: "coding-agent", Base: "main", Plan: p})
+	if err != nil { t.Fatal(err) }
+	if err := coordination.Transition(d, first.SessionID, "BLOCKED"); err != nil { t.Fatal(err) }
+	if err := Block(d, "obj", first, "validation failed"); err != nil { t.Fatal(err) }
+	if err := AuthorizeRecovery(d, "obj", "a", first.AssignmentGeneration+1); err == nil {
+		t.Fatal("expected stale recovery authorization rejection")
+	}
+	if err := AuthorizeRecovery(d, "obj", "a", first.AssignmentGeneration); err != nil { t.Fatal(err) }
+	snap, err := Read(d)
+	if err != nil { t.Fatal(err) }
+	task := snap.Tasks[taskKey("obj", "a")]
+	if task.Status != "PENDING" || task.Token != "" || task.SessionID != "" || len(task.AssignmentHistory) != 1 {
+		t.Fatalf("bad recovered task: %+v", task)
+	}
+	history := task.AssignmentHistory[0]
+	if history.AssignmentGeneration != first.AssignmentGeneration || history.Token != first.Token ||
+		history.SessionID != first.SessionID || history.Worktree != first.Worktree || history.Blocker != "validation failed" {
+		t.Fatalf("recovery history lost assignment evidence: %+v", history)
+	}
+	if _, err := os.Stat(first.Worktree); err != nil {
+		t.Fatalf("old worktree was not preserved: %v", err)
+	}
+	if err := Complete(d, "obj", "a", first.Token, first.SessionID, first.AssignmentGeneration); err == nil {
+		t.Fatal("stale completion from recovered assignment was accepted")
+	}
+	second, err := Acquire(Request{Workspace: d, Agent: "two", Role: "coding-agent", Base: "main", Plan: p})
+	if err != nil { t.Fatal(err) }
+	if second.Attempt != 2 || second.AssignmentGeneration <= first.AssignmentGeneration ||
+		second.Token == first.Token || second.SessionID == first.SessionID || second.Worktree == first.Worktree {
+		t.Fatalf("recovery did not create a fresh fenced assignment: first=%+v second=%+v", first, second)
+	}
+}
+
+func TestAuthorizeRecoveryRejectsNonBlockedTask(t *testing.T) {
+	d := initRepo(t)
+	p := objective.Plan{ID: "obj", Objective: "ship", Tasks: []objective.Task{{ID: "a", Feature: "a", Scope: "backend"}}}
+	r, err := Acquire(Request{Workspace: d, Agent: "one", Role: "coding-agent", Base: "main", Plan: p})
+	if err != nil { t.Fatal(err) }
+	if err := AuthorizeRecovery(d, "obj", "a", r.AssignmentGeneration); err == nil {
+		t.Fatal("expected ASSIGNED task recovery rejection")
+	}
 }

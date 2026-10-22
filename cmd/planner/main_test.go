@@ -15,7 +15,10 @@ import (
 
 	"fmt"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/controller"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
 )
@@ -204,5 +207,71 @@ func TestInteractiveObjectiveThroughHumanReview(t *testing.T) {
 		if o.Status != "APPROVED" {
 			t.Fatalf("%+v", o)
 		}
+	}
+}
+
+func TestBlockedRecoveryRequiresExplicitHumanAuthorization(t *testing.T) {
+	for _, authorize := range []bool{false, true} {
+		t.Run(fmt.Sprintf("authorize=%v", authorize), func(t *testing.T) {
+			d := t.TempDir()
+			git := func(args ...string) string {
+				t.Helper()
+				cmd := exec.Command("git", args...)
+				cmd.Dir = d
+				b, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("%v %s", err, b)
+				}
+				return strings.TrimSpace(string(b))
+			}
+			git("init", "-b", "main")
+			git("config", "user.email", "test@example.com")
+			git("config", "user.name", "Test")
+			if err := os.WriteFile(filepath.Join(d, "README.md"), []byte("# Fixture\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			git("add", "README.md")
+			git("commit", "-m", "Seed")
+			if _, err := enrollment.Enroll(d, enrollment.Native, "test"); err != nil {
+				t.Fatal(err)
+			}
+			p := objective.Plan{ID: "blocked-objective", Objective: "recover work", Tasks: []objective.Task{{ID: "blocked", Feature: "blocked", Scope: "docs"}}}
+			first, err := scheduler.Acquire(scheduler.Request{Workspace: d, Agent: "one", Role: "coding-agent", Base: "main", Plan: p})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := coordination.Transition(d, first.SessionID, "BLOCKED"); err != nil {
+				t.Fatal(err)
+			}
+			if err := scheduler.Block(d, p.ID, first, "validation failed"); err != nil {
+				t.Fatal(err)
+			}
+
+			var out bytes.Buffer
+			answer := "\n"
+			if authorize {
+				answer = "yes\n"
+			}
+			if err := authorizeBlockedRecovery(bufio.NewReader(strings.NewReader(answer)), &out, d, p.ID); err != nil {
+				t.Fatal(err)
+			}
+			s, err := scheduler.Read(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := s.Tasks[p.ID+"::blocked"]
+			if authorize {
+				if task.Status != "PENDING" || len(task.AssignmentHistory) != 1 {
+					t.Fatalf("authorized recovery not persisted: %+v", task)
+				}
+				if !strings.Contains(out.String(), "Recovery authorized") {
+					t.Fatalf("output=%s", out.String())
+				}
+			} else {
+				if task.Status != "BLOCKED" || task.Attempt != 1 || task.Token != first.Token {
+					t.Fatalf("silence changed blocked ownership: %+v", task)
+				}
+			}
+		})
 	}
 }

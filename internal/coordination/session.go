@@ -62,6 +62,61 @@ func CompleteSession(primary, sessionID, token string, recordEvidence func() err
 	})
 }
 
+
+// RetireBlockedSession atomically moves a BLOCKED session to HANDOFF and removes
+// all claims owned by that session from the coordination ledger. It is idempotent
+// after successful retirement so structured-state recovery can be safely retried
+// if its subsequent state update fails.
+func RetireBlockedSession(primary, sessionID, token string) error {
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(token) == "" {
+		return errors.New("session and token are required")
+	}
+	return withLock(primary, func() error {
+		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		current, err := sessionState(data, sessionID)
+		if err != nil {
+			return err
+		}
+		claims, err := sessionClaimRows(data, sessionID)
+		if err != nil {
+			return err
+		}
+		if current == "HANDOFF" {
+			if len(claims) != 0 {
+				return errors.New("retired HANDOFF session still owns claims")
+			}
+			return nil
+		}
+		if current != "BLOCKED" {
+			return fmt.Errorf("recovery requires BLOCKED session, got %s", current)
+		}
+		ownsToken := false
+		for _, claimedToken := range claims {
+			if claimedToken == token {
+				ownsToken = true
+			}
+		}
+		if !ownsToken {
+			return errors.New("blocked session does not own expected claim token")
+		}
+		lines, err := transitionLines(data, sessionID, "HANDOFF")
+		if err != nil {
+			return err
+		}
+		remaining := make([]string, 0, len(lines)-len(claims))
+		for i, line := range lines {
+			if _, owned := claims[i]; !owned {
+				remaining = append(remaining, line)
+			}
+		}
+		return atomicWrite(path, strings.Join(remaining, "\n"))
+	})
+}
+
 func agentRow(data []byte, sessionID string) (int, []string, error) {
 	// Activation appends registrations to the ledger, potentially after the
 	// claims table. Distinguish nine-cell session rows from seven-cell claims.
