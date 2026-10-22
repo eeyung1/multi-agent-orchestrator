@@ -27,6 +27,42 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
+func authorizeBlockedRecovery(reader *bufio.Reader, out io.Writer, primary, objectiveID string) error {
+	snap, err := scheduler.Read(primary)
+	if err != nil {
+		return err
+	}
+	var keys []string
+	for key, task := range snap.Tasks {
+		if task.ObjectiveID == objectiveID && task.Status == "BLOCKED" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		task := snap.Tasks[key]
+		fmt.Fprintf(out, "Blocked task %s (attempt %d): %s\n", task.ID, task.Attempt, task.Blocker)
+		if task.Branch != "" {
+			fmt.Fprintf(out, "Preserved branch: %s\n", task.Branch)
+		}
+		yes, err := confirm(reader, out, fmt.Sprintf("Authorize recovery of blocked task %s with a fresh assignment? [y/N] ", task.ID))
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if !yes {
+			continue
+		}
+		if err := scheduler.AuthorizeRecovery(primary, objectiveID, task.ID, task.AssignmentGeneration); err != nil {
+			return fmt.Errorf("authorize recovery for %s: %w", task.ID, err)
+		}
+		fmt.Fprintf(out, "Recovery authorized for %s; prior assignment remains preserved as audit history.\n", task.ID)
+	}
+	return nil
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -262,7 +298,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		objectiveID = proposal.Plan.ID
 	}
-	fmt.Fprintln(out, "ORCHESTRATOR is scheduling eligible work and collecting evidence. Existing assignments will not be relaunched.")
+	if objectiveID != "" {\n\t\tif err := authorizeBlockedRecovery(reader, out, primary, objectiveID); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n	fmt.Fprintln(out, "ORCHESTRATOR is scheduling eligible work and collecting evidence. Existing assignments will not be relaunched.")
 	report, err := controller.Run(ctx, primary, objectiveID, c)
 	if err != nil {
 		return err
