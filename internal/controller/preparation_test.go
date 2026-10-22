@@ -198,7 +198,6 @@ func TestPreparationExecutablePolicyRejectsUntrustedPrograms(t *testing.T) {
 	}
 }
 
-
 func TestExplicitPreparationPolicyReauthorizationPreservesObjectiveState(t *testing.T) {
 	d, c := fixture(t)
 	p := admit(t, d, c, task("first"))

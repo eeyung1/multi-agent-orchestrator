@@ -16,12 +16,12 @@ func TestConfigurePreparationPolicyRequiresExactHumanAuthorizationAndPreservesPo
 	workspace := t.TempDir()
 	path := filepath.Join(t.TempDir(), "planner.json")
 	base := controller.Config{
-		Validators: map[string]execution.Command{"check": {Program: "git", Args: []string{"diff", "--check"}}},
+		Validators:         map[string]execution.Command{"check": {Program: "git", Args: []string{"diff", "--check"}}},
 		RequiredValidators: []string{"check"},
-		AllowedScopes: []string{"."},
-		MaxWorkers: 2,
-		TimeoutSeconds: 60,
-		HeartbeatSeconds: 10,
+		AllowedScopes:      []string{"."},
+		MaxWorkers:         2,
+		TimeoutSeconds:     60,
+		HeartbeatSeconds:   10,
 	}
 	if err := savePolicy(path, base, false); err != nil {
 		t.Fatal(err)
@@ -48,9 +48,9 @@ func TestConfigurePreparationPolicyRefusalLeavesConfigUnchanged(t *testing.T) {
 	workspace := t.TempDir()
 	path := filepath.Join(t.TempDir(), "planner.json")
 	base := controller.Config{
-		Validators: map[string]execution.Command{"check": {Program: "git", Args: []string{"diff", "--check"}}},
+		Validators:         map[string]execution.Command{"check": {Program: "git", Args: []string{"diff", "--check"}}},
 		RequiredValidators: []string{"check"},
-		MaxWorkers: 1,
+		MaxWorkers:         1,
 	}
 	if err := savePolicy(path, base, false); err != nil {
 		t.Fatal(err)

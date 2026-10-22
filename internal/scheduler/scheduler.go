@@ -158,7 +158,6 @@ func Acquire(req Request) (Result, error) {
 	return Result{Task: selected, SessionID: started.SessionID, State: started.State, Branch: started.Branch, Worktree: started.Worktree, Token: token, Attempt: attempt, AssignmentGeneration: generation}, nil
 }
 
-
 func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration uint64) error {
 	primary, err := repository.Primary(workspace)
 	if err != nil {
