@@ -325,7 +325,7 @@ func runAssignment(ctx context.Context, primary string, plan objective.Plan, a s
 		if err == nil {
 			return nil
 		}
-		if attempt >= c.RepairAttempts || ctx.Err() != nil {
+		if attempt >= c.RepairAttempts || ctx.Err() != nil || errors.Is(err, review.ErrValidationBoundary) {
 			return err
 		}
 		// Only repair our own just-finished child under the same ownership. This
@@ -432,46 +432,68 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 		return err
 	}
 	task := s.Tasks[plan.ID+"::"+a.Task.ID]
-	if w.Adapter != "" {
-		gitProgram, err := providers.ResolveExecutable("git", primary)
+	gitProgram, err := providers.ResolveExecutable("git", primary)
+	if err != nil {
+		return err
+	}
+	// Snapshot the request before installing validator callbacks: cleanup Git
+	// commands must not recursively invoke the validation boundary.
+	gitReq := req
+	gitReq.Input = ""
+	gitReq.RedactArguments = false
+	runGit := func(args ...string) error {
+		gitReq.Command = execution.Command{Program: gitProgram, Args: args}
+		result, err := execution.Run(gitReq)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %s", err, result.Output)
 		}
-		runGit := func(args ...string) error {
-			gitReq := req
-			gitReq.Command = execution.Command{Program: gitProgram, Args: args}
-			gitReq.Input = ""
-			gitReq.RedactArguments = false
-			result, err := execution.Run(gitReq)
-			if err != nil {
-				return fmt.Errorf("%w: %s", err, result.Output)
-			}
-			return nil
-		}
+		return nil
+	}
+	if w.Adapter != "" {
 		if _, err := review.CommitOwned(task, guard, runGit); err != nil {
 			return err
 		}
 	}
-	head, err := review.CheckOutput(task)
+	boundary, err := review.BeginValidation(task, guard)
 	if err != nil {
 		return err
 	}
 	var evidence []string
-	for _, name := range a.Task.Validation {
+	for index, name := range a.Task.Validation {
 		req.Command = c.Validators[name]
 		req.RedactArguments = false
 		req.Input = ""
+		restored := ""
+		req.AfterExit = func(result execution.Result) error {
+			if err := boundary.Verify(guard); err != nil {
+				return err
+			}
+			// Preserve intermediates between checks, then clean on the final
+			// check or first failure, before execution marks the session BLOCKED.
+			if result.ExitCode != 0 || index == len(a.Task.Validation)-1 {
+				var err error
+				restored, err = boundary.Restore(guard, runGit)
+				return err
+			}
+			return nil
+		}
 		result, err := execution.Run(req)
 		if err != nil {
+			if restored != "" {
+				return fmt.Errorf("validation %s failed: %w; %s", name, err, restored)
+			}
 			return fmt.Errorf("validation %s failed: %w", name, err)
 		}
 		evidence = append(evidence, fmt.Sprintf("%s %s: PASS\n%s", name, commandDisplay(req.Command), result.Output))
+		if restored != "" {
+			evidence = append(evidence, restored)
+		}
 	}
 	if err := guard(); err != nil {
 		return err
 	}
 	in := input(primary, plan.ID, task)
-	in.ValidatedHead = head
+	in.ValidatedHead = boundary.Head
 	in.Validation = strings.Join(evidence, "\n")
 	in.Artifacts = []string{a.Worktree}
 	if err := review.RecordValidation(in); err != nil {

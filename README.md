@@ -44,6 +44,13 @@ checks rather than executing model-generated commands. Results include exact
 branch HEADs and evidence. `AWAITING_REVIEW` becomes `APPROVED` or
 `CHANGES_REQUESTED` only through a human decision; approval never merges or deploys.
 
+Managed validators may regenerate tracked reports or create temporary files.
+After strict clean worker-output review, the controller captures HEAD, verifies
+unchanged history/branch after each check, and restores only validation-phase
+filesystem side effects before accepting evidence. Failed checks still fail;
+history changes and unsafe cleanup block the assignment. See the
+[validation boundary contract](docs/planner-agent.md#execution-dependency-and-recovery-policy).
+
 Restart the same command to select a saved objective. Its provider selections
 are restored and the existing policy digest still applies. Existing assignments are
 not duplicated or stolen after heartbeat expiry. Independent pending work can
