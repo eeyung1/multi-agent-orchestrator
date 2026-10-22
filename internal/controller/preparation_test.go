@@ -153,6 +153,9 @@ func TestPreparationFailureBlocksWorkerAndRetainsOwnership(t *testing.T) {
 				t.Fatal(err)
 			}
 			st := s.Tasks[p.ID+"::first"]
+			if status, err := coordination.SessionStatus(d, st.SessionID); err != nil || status != "BLOCKED" {
+				t.Fatalf("preparation failure left inconsistent operational state: %s %v", status, err)
+			}
 			if len(s.Results) != 0 || st.Attempt != 1 {
 				t.Fatal("failed preparation produced a result or retried assignment")
 			}

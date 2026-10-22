@@ -227,6 +227,26 @@ previously recorded validation and published COMPLETE session. Other interrupted
 assignments require writer/checkpoint reconciliation. Configuration or instruction
 drift requires a fresh decision rather than silently accepting different policy.
 
+Explicit human recovery can reconcile a historical structured BLOCKED assignment
+whose operational session still says WORKING. Ordinary `RetireBlockedSession`
+remains restricted to BLOCKED or already-retired HANDOFF sessions. The recovery
+path locks structured state before coordination, rereads the exact objective/task,
+generation, token, session, branch and worktree, and verifies the session row and
+owned claim's feature/scope. An active/newer assignment or another active task
+referencing the ownership prevents retirement. HANDOFF and removal of all that
+session's claims are published in one ledger replacement. The human authorization
+is audited; the scheduler then fences the unchanged assignment again, preserves
+it in `AssignmentHistory`, and clears ownership for a fresh PENDING assignment.
+Interrupted BLOCKED/HANDOFF recovery is retryable; reusing an old authorization
+after reset or reassignment is rejected. Silence never authorizes reconciliation.
+
+Current terminal controller errors block exact operational ownership before
+publishing structured BLOCKED. If operational publication fails, structured state
+is not changed to BLOCKED. A later structured-write failure can leave
+ASSIGNED/BLOCKED, or BLOCKED/HANDOFF during recovery; these separate durable writes
+are not a cross-file transaction. No heartbeat age proves a writer has stopped,
+and reconciliation does not provide containment against an unmanaged writer.
+
 State reservations, Git operations and Markdown completion are separate durable
 steps, not a cross-file transaction. A leftover state/coordination lock is never
 removed on an age-based heuristic. Storage/lock failures remain explicit blockers.

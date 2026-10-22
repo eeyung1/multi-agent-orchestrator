@@ -182,6 +182,9 @@ exhausted repair, scope expansion, conflicting instructions and divergent
 prerequisite branches become concrete decision questions while independent
 eligible work continues.
 
+For a BLOCKED task, follow [Recover a BLOCKED Planner assignment](#recover-a-blocked-planner-assignment)
+below. Recovery requires an explicit human decision through Planner.
+
 The consolidated report contains completed/incomplete tasks, branches, exact
 HEADs, validation evidence, local artifacts, blockers, limitations and next action.
 When all task results are collected it reaches `AWAITING_REVIEW`. The interactive
@@ -712,13 +715,96 @@ Only then increase the number of simultaneous workers.
 
 **overlapping scope/claim rejected** — another assignment owns that path or a parent/child path. Choose independent work or perform an authorized handoff.
 
-**session is BLOCKED** — inspect validation/execution evidence and repair the existing assignment. Do not steal its scope.
+**task/session is BLOCKED** — inspect the blocker and preserved evidence. For Planner-managed tasks, use the recovery workflow below; do not steal the scope or manually change coordination state.
 
 **wrong worktree** — use the exact worktree returned by the scheduler/start command.
 
 **state/runtime folders show as untracked** — do not accidentally commit them to product code; add repository-appropriate ignore rules.
 
 **Go tests fail in this repository** — stop and resolve that before using the runtime for production work.
+
+### Recover a BLOCKED Planner assignment
+
+A BLOCKED assignment retains ownership until an authorized recovery retires it.
+Its preserved branch and isolated worktree are evidence from the failed attempt;
+they may contain implementation work, commits, or generated files worth reviewing.
+
+- Do not manually edit `multi-agent-orchestrator/state.json` or
+  `multi-agent-orchestrator/agentmeeting.md` to retry a task.
+- Do not delete claims, reuse or alter claim tokens, or manually mark a session
+  BLOCKED or HANDOFF.
+- Do not delete the preserved worktree or branch just to retry.
+
+#### Normal recovery
+
+1. From your orchestrator checkout, start Planner against the target workspace:
+
+   ```bash
+   go run ./cmd/planner --workspace ~/Projects/my-project
+   ```
+
+2. Select the existing objective to resume. Keep its trusted configuration and
+   concurrency overrides as described under [Resume and review](#resume-and-review).
+3. Planner identifies each BLOCKED task and displays its attempt, blocker, and
+   preserved branch. Review the blocker and any work that needs human inspection.
+   For missing toolchains or local dependencies, consult the existing
+   [Go toolchain troubleshooting](#if-your-go-version-is-too-old) and
+   [worktree preparation policy](#configure-custom-providers-and-policy) guidance
+   before retrying. Recovery does not authorize a new installation command.
+4. Planner asks: `Authorize recovery of blocked task <task> with a fresh assignment? [y/N]`.
+   Explicitly answer `yes` only after reviewing the blocker and resolving the
+   underlying issue. Enter, silence, or a refusal does not authorize recovery.
+5. Go ORCHESTRATOR verifies and safely retires the exact old assignment, releases
+   that session's claims, preserves its assignment history and branch/worktree,
+   and returns the task to PENDING.
+6. When eligible, a subsequent acquisition creates a fresh attempt with a new
+   assignment generation, session, claim token, and isolated branch/worktree.
+
+Users normally do not need to know or manually manage session IDs, claim tokens,
+generations, or worktree internals. Planner presents the decision; Go performs
+the ownership changes.
+
+#### Historical BLOCKED/WORKING split
+
+An interrupted or historical failure path can leave structured scheduler state
+saying BLOCKED while its older operational session still says WORKING. Do not
+manually reconcile those files. Use the same explicit recovery flow above.
+
+Before retiring a WORKING session, ORCHESTRATOR verifies that its ownership is
+the exact assignment represented by the structured BLOCKED task. Checks include:
+
+- objective/task identity and the exact assignment generation;
+- session identity, claim token and operational claim ownership;
+- the assigned branch/worktree and the claim's feature/scope;
+- no replacement/newer assignment or conflicting active ownership;
+- explicit human recovery authorization.
+
+If those checks do not match, recovery fails closed. Inspect the reported
+mismatch and resolve its cause rather than editing the ledgers or forcing a retry.
+
+#### Safe retry after interruption
+
+Recovery spans separate durable coordination and structured-state writes. An
+interruption can leave the task BLOCKED with its old session already HANDOFF;
+this BLOCKED/HANDOFF boundary is designed for safe retry. Restart Planner, resume
+the same objective, and review and explicitly authorize recovery again if asked.
+Do not manually change state or restore old claims. Completed recovery or a
+replacement assignment is fenced against reuse of an old authorization.
+
+#### When to stop
+
+Do not force recovery when another/newer assignment owns the task, when
+generation/session/token identity does not match, when the preserved branch
+contains work needing human review first, or when Planner/ORCHESTRATOR reports
+an authority or reconciliation error. Inspect the blocker and resolve the
+underlying issue first. A WORKING status or old heartbeat alone does not prove
+that a writer has stopped or authorize taking over its work.
+
+Go ORCHESTRATOR remains the sole coordination authority. Planner is the
+reasoning/conversational interface; workers cannot self-authorize recovery.
+The user retains final review and merge/deployment authority. This is local
+orchestration, not an OS/container sandbox, and local filesystem coordination
+is not a distributed multi-host lock.
 
 ## 15. Updating the orchestrator
 

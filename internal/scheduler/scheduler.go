@@ -158,7 +158,10 @@ func Acquire(req Request) (Result, error) {
 	return Result{Task: selected, SessionID: started.SessionID, State: started.State, Branch: started.Branch, Worktree: started.Worktree, Token: token, Attempt: attempt, AssignmentGeneration: generation}, nil
 }
 
-func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration uint64) error {
+func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration uint64, human string) error {
+	if strings.TrimSpace(human) == "" {
+		return errors.New("explicit human recovery authorization is required")
+	}
 	primary, err := repository.Primary(workspace)
 	if err != nil {
 		return err
@@ -177,7 +180,7 @@ func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration
 	}
 	key := taskKey(objectiveID, taskID)
 	blocked, ok := snap.Tasks[key]
-	if !ok {
+	if !ok || blocked.ID != taskID || blocked.ObjectiveID != objectiveID {
 		return errors.New("task not found")
 	}
 	if blocked.Status != "BLOCKED" {
@@ -191,18 +194,15 @@ func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration
 	}
 	// Retire operational ownership first. If the structured update below fails,
 	// the task remains BLOCKED and this retirement is idempotent for a safe retry.
-	if err := coordination.RetireBlockedSession(primary, blocked.SessionID, blocked.Token); err != nil {
+	if err := coordination.ReconcileBlockedAssignment(primary, blocked, human); err != nil {
 		return fmt.Errorf("retire blocked assignment: %w", err)
 	}
-	return store.Update("ORCHESTRATOR", "authorize-recovery", func(s *state.Snapshot) error {
+	return store.Update(human, "authorize-recovery", func(s *state.Snapshot) error {
 		current, ok := s.Tasks[key]
 		if !ok {
 			return errors.New("task not found")
 		}
-		if current.Status != "BLOCKED" ||
-			current.AssignmentGeneration != expectedGeneration ||
-			current.Token != blocked.Token ||
-			current.SessionID != blocked.SessionID {
+		if !reflect.DeepEqual(current, blocked) {
 			return errors.New("blocked assignment changed during recovery")
 		}
 		current.AssignmentHistory = append(current.AssignmentHistory, state.AssignmentHistory{
@@ -390,8 +390,14 @@ func Block(workspace, objectiveID string, a Result, reason string) error {
 	return store.Update("ORCHESTRATOR", "task-blocked", func(s *state.Snapshot) error {
 		key := taskKey(objectiveID, a.Task.ID)
 		t, ok := s.Tasks[key]
-		if !ok || t.Status != "ASSIGNED" || t.Token != a.Token || t.SessionID != a.SessionID || t.AssignmentGeneration != a.AssignmentGeneration {
+		if !ok || t.ID != a.Task.ID || t.ObjectiveID != objectiveID || t.Status != "ASSIGNED" || t.Token != a.Token || t.SessionID != a.SessionID || t.AssignmentGeneration != a.AssignmentGeneration || t.Worktree != a.Worktree || t.Branch != a.Branch {
 			return errors.New("stale blocker rejected")
+		}
+		// A stopped child may fail after supervised execution has returned (for
+		// example during review/recording). Publish operational BLOCKED first so
+		// structured BLOCKED never implies a still-executable WORKING session.
+		if err := coordination.BlockOwnedSession(primary, t); err != nil {
+			return fmt.Errorf("block operational assignment: %w", err)
 		}
 		t.Status = "BLOCKED"
 		t.Blocker = reason

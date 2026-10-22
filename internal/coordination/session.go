@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
 // CompleteSession records successful validation evidence and publishes COMPLETE
@@ -62,12 +64,17 @@ func CompleteSession(primary, sessionID, token string, recordEvidence func() err
 	})
 }
 
-
 // RetireBlockedSession atomically moves a BLOCKED session to HANDOFF and removes
 // all claims owned by that session from the coordination ledger. It is idempotent
 // after successful retirement so structured-state recovery can be safely retried
 // if its subsequent state update fails.
 func RetireBlockedSession(primary, sessionID, token string) error {
+	return retireBlockedSession(primary, sessionID, token, nil)
+}
+
+// expected is supplied only by ReconcileBlockedAssignment while it holds the
+// structured-state lock and has verified the exact BLOCKED assignment.
+func retireBlockedSession(primary, sessionID, token string, expected *state.Task) error {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(token) == "" {
 		return errors.New("session and token are required")
 	}
@@ -85,13 +92,18 @@ func RetireBlockedSession(primary, sessionID, token string) error {
 		if err != nil {
 			return err
 		}
+		if expected != nil {
+			if err := verifyAssignmentRow(data, *expected, current != "HANDOFF"); err != nil {
+				return err
+			}
+		}
 		if current == "HANDOFF" {
 			if len(claims) != 0 {
 				return errors.New("retired HANDOFF session still owns claims")
 			}
 			return nil
 		}
-		if current != "BLOCKED" {
+		if current != "BLOCKED" && !(current == "WORKING" && expected != nil) {
 			return fmt.Errorf("recovery requires BLOCKED session, got %s", current)
 		}
 		ownsToken := false
@@ -115,6 +127,70 @@ func RetireBlockedSession(primary, sessionID, token string) error {
 		}
 		return atomicWrite(path, strings.Join(remaining, "\n"))
 	})
+}
+
+// BlockOwnedSession retains every claim and blocks only the exact operational
+// assignment. The scheduler calls this under its state lock before publishing
+// structured BLOCKED; retries after an earlier operational block are harmless.
+func BlockOwnedSession(primary string, expected state.Task) error {
+	return withLock(primary, func() error {
+		path := filepath.Join(primary, "multi-agent-orchestrator", "agentmeeting.md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := verifyAssignmentRow(data, expected, true); err != nil {
+			return err
+		}
+		current, err := sessionState(data, expected.SessionID)
+		if err != nil {
+			return err
+		}
+		if current == "BLOCKED" {
+			return nil
+		}
+		if current != "WORKING" {
+			return fmt.Errorf("blocking requires WORKING or BLOCKED session, got %s", current)
+		}
+		lines, err := transitionLines(data, expected.SessionID, "BLOCKED")
+		if err != nil {
+			return err
+		}
+		return atomicWrite(path, strings.Join(lines, "\n"))
+	})
+}
+
+func verifyAssignmentRow(data []byte, expected state.Task, requireClaim bool) error {
+	if expected.SessionID == "" || expected.Token == "" || expected.Branch == "" || expected.Worktree == "" || expected.Feature == "" || expected.Scope == "" {
+		return errors.New("assignment is missing operational ownership identity")
+	}
+	_, row, err := agentRow(data, expected.SessionID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(row[5]) != expected.Feature ||
+		strings.TrimSpace(row[6]) != expected.Branch+" @ "+expected.Worktree ||
+		strings.TrimSpace(row[7]) != expected.Token {
+		return errors.New("operational session does not match the expected assignment")
+	}
+	claims, err := sessionClaimRows(data, expected.SessionID)
+	if err != nil {
+		return err
+	}
+	if !requireClaim {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	for index, token := range claims {
+		if token == expected.Token {
+			parts := strings.Split(strings.TrimSpace(lines[index]), "|")
+			if strings.TrimSpace(parts[3]) != expected.Feature || strings.TrimSpace(parts[4]) != expected.Scope {
+				return errors.New("operational claim does not match the expected feature/scope")
+			}
+			return nil
+		}
+	}
+	return errors.New("operational session does not own expected claim token")
 }
 
 func agentRow(data []byte, sessionID string) (int, []string, error) {
