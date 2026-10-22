@@ -31,6 +31,11 @@ integration paths. Workers are primarily invoked as managed subprocesses. An
 approved task selects a configured capability; the scheduler does not yet match
 tasks against a dynamic registry of independently connected available agents.
 
+Phase 1 now supplies provider-neutral identity/envelope types and validation in
+`internal/agentprotocol`, with a [focused protocol contract](docs/agent-protocol.md).
+This is a library foundation, not live enrollment: existing managed adapters,
+worker context, configuration and persisted state remain unchanged.
+
 ### Start the managed Planner workflow
 
 Start the Planner, choose a repository, and describe the objective:
@@ -197,10 +202,11 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 
 ## Universal Agent Enrollment & Transport Protocol
 
-**Roadmap / in development.** This milestone extends the existing control-plane
+**Roadmap / in development.** Phase 1's wire/domain model is implemented; Phases
+2–8 remain future work. This milestone extends the existing control-plane
 foundations with dynamic agent admission and a common logical contract. The
-following lifecycle, messages and states are design requirements, not a claim
-that matching wire formats, endpoints or CLI commands have shipped.
+following lifecycle remains the target; the model alone does not provide an
+enrollment service, transport, registry, or new attach/enroll CLI commands.
 
 ### Required enrollment lifecycle
 
@@ -267,9 +273,13 @@ is what this milestone develops.
 
 ### Phase 1 — Protocol and identity
 
-Define protocol versioning, agent identity, session identity, capabilities,
-supported roles, and the enrollment state model. Separate runtime metadata from
-authority and define admission/compatibility checks.
+**Model foundation implemented:** `internal/agentprotocol` defines versioned agent
+and session identities, informational provider/runtime metadata, extensible
+capabilities, explicit supported roles, admission-state vocabulary, strict JSON
+envelopes, and references to existing scheduler assignment identity. Shape and
+message-direction validation grant no authority. Runtime admission, registry,
+liveness and transport behavior remain later phases. See the
+[Phase 1 contract and boundaries](docs/agent-protocol.md).
 
 ### Phase 2 — Registry and liveness
 
