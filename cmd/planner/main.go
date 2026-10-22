@@ -298,7 +298,12 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		objectiveID = proposal.Plan.ID
 	}
-	if objectiveID != "" {\n\t\tif err := authorizeBlockedRecovery(reader, out, primary, objectiveID); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n	fmt.Fprintln(out, "ORCHESTRATOR is scheduling eligible work and collecting evidence. Existing assignments will not be relaunched.")
+	if objectiveID != "" {
+		if err := authorizeBlockedRecovery(reader, out, primary, objectiveID); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintln(out, "ORCHESTRATOR is scheduling eligible work and collecting evidence. Existing assignments will not be relaunched.")
 	report, err := controller.Run(ctx, primary, objectiveID, c)
 	if err != nil {
 		return err
