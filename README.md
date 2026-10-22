@@ -8,12 +8,12 @@ on a fixed provider list: compatibility, capabilities and explicit enrollment
 determine participation; provider identity does not grant authority.
 
 **Currently implemented:** authoritative local Go orchestration with configured
-adapters and managed worker processes. **Target architecture / in development:**
-universal agent enrollment and a transport-neutral protocol, including independent
-agents requesting admission. Dynamic attachment is the gap this milestone is
-intended to close, not a permanent product limitation.
+managed workers, plus invitation-based Unix-local attachment for compatible
+independently started clients/bridges. **Target architecture / in development:**
+selecting an enrolled Planner and dispatching tasks to heterogeneous enrolled
+workers. Local attachment alone does not enable those execution paths.
 
-> **New user?** Start with [setup.md](setup.md) for the currently implemented workflow: installation, repository enrollment, provider configuration, isolated agents, scheduling, recovery, and human review. See [Target architecture / in development](#target-architecture--in-development) and [Universal Agent Enrollment & Transport Protocol](#universal-agent-enrollment--transport-protocol) for the architecture being developed. These roadmap sections are requirements, not instructions for an already-implemented attach service.
+> **New user?** Start with [setup.md](setup.md) for managed workflows. For the separate local attachment foundation, see [agent-attachment.md](docs/agent-attachment.md). The roadmap below distinguishes shipped foundations from future execution features.
 
 ## Currently implemented
 
@@ -24,8 +24,8 @@ gates, blocked-assignment recovery, configured provider adapters, and parallel
 eligible task scheduling.
 
 Repository authority enrollment and local session registration exist today. They
-are separate from the new internal protocol-session registry; there is still no
-transport enrollment handshake or reconnect protocol. Built-in CLI adapters still
+are separate from the protocol-session registry and its new local admission
+handshake. There is no same-session reconnect protocol. Built-in CLI adapters still
 use a closed catalog;
 trusted custom CLI adapters and HTTP planning configuration offer additional
 integration paths. Workers are primarily invoked as managed subprocesses. An
@@ -45,7 +45,17 @@ Phase 3 adds `internal/agenttransport`: a common message interface, bounded
 in-memory endpoints, and generic NDJSON framing for already-open interruptible
 streams. These move strictly validated envelopes without applying authority
 decisions. See [transport semantics and boundaries](docs/agent-transport.md).
-There is no listener, external attach workflow, or managed-provider migration yet.
+The transport itself remains non-authoritative; Phase 4 adds the separate handler
+and private local listener described next. Managed providers have not migrated.
+
+Phase 4 adds `internal/agentattachment`, `cmd/agent-listener`, and the independent
+`cmd/agent-bridge` example: bounded one-use invitations, private Unix sockets,
+authoritative session binding, and acknowledged heartbeat/disconnect. New sessions
+are READY with no assigned role. See [local attachment instructions and trust
+boundaries](docs/agent-attachment.md). "Any compatible agent" requires a client
+or bridge that speaks the protocol; closed products need an integration surface.
+No dynamic Planner execution, enrolled-worker dispatch or remote/public service
+is provided.
 
 ### Start the managed Planner workflow
 
@@ -75,9 +85,9 @@ go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers
 
 See [Connecting the Planner and Worker Agents](setup.md#connecting-the-planner-and-worker-agents)
 for provider configuration, managed process launch, parallel tasks, and a first
-multi-agent run. Existing independent chats/processes cannot yet dynamically
-enroll/attach to this managed workflow; the enrollment milestone below addresses
-that missing capability.
+multi-agent run. Compatible independent clients can now enroll through the separate
+local attachment service, but do not join this managed execution workflow yet.
+Existing arbitrary chats/processes cannot attach without a compatible bridge.
 
 Detection inspects trusted absolute PATH entries without running agents or
 checking authentication. Project-local executables and relative PATH entries
@@ -114,9 +124,9 @@ acceptance remains necessary. See [Planner architecture and limitations](docs/pl
 
 ## Target architecture / in development
 
-This section defines the product architecture to build. It does not claim that
-external attachment or all transports exist today. The internal registry described
-above is implemented; the complete cross-process lifecycle remains the target.
+This section defines the product architecture to build. Local attachment is
+implemented; the complete cross-process task lifecycle and other transports
+remain the target.
 A user must ultimately be able to make multiple compatible agents available,
 enroll/select one planning-capable agent as Planner, enroll others as Workers,
 run eligible independent assignments simultaneously, and receive consolidated
@@ -215,12 +225,12 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 ## Universal Agent Enrollment & Transport Protocol
 
 **Roadmap / in development.** Phase 1's wire/domain model, Phase 2's internal
-registry/liveness foundation, and Phase 3's transport library are implemented;
-Phases 4–8 remain future work. This
+registry/liveness foundation, Phase 3's transport library, and Phase 4's local
+attachment/session lifecycle are implemented. Phases 5–8 remain future work. This
 milestone extends the existing control-plane
 foundations with dynamic agent admission and a common logical contract. The
-following complete lifecycle remains the target; the internal APIs do not provide
-a transport enrollment service or new attach/enroll CLI commands.
+following complete lifecycle remains the target; local enrollment and liveness
+do not yet supply Planner selection or task execution for enrolled agents.
 
 ### Required enrollment lifecycle
 
@@ -282,8 +292,8 @@ AVAILABLE after authoritative admission. No provider-specific scheduler change
 should be required. An available planning-capable agent can be selected as
 Planner under the required human authorization; available Workers receive only
 Go-issued assignments. Discovery, a capability advertisement, or a connection
-alone grants no permission. This missing dynamic enrollment/attachment capability
-is what this milestone develops.
+alone grants no permission. Phase 4 now supplies explicit invitation-based local
+enrollment; discovery, Planner selection and enrolled task dispatch remain future.
 
 ### Phase 1 — Protocol and identity
 
@@ -312,16 +322,19 @@ bounded duplex in-memory transport, and strict size-bounded NDJSON stream framin
 Transport moves messages; provider adapters translate provider-specific requests
 and output. Go retains all scheduling, ownership, admission and result-authority
 semantics. Existing managed CLI adapters remain working and unchanged; migrating
-them behind protocol bridges remains future integration. There is no external
-attachment, public listener, or transport authentication/admission handler. See
+them behind protocol bridges remains future integration. Admission lives outside
+transport in the new Phase 4 handler; there is no public network listener. See
 [the Phase 3 contract](docs/agent-transport.md).
 
 ### Phase 4 — External/local attachment
 
-Allow independently started compatible local agents to connect through an
-explicit registration/enrollment handshake, advertise capabilities, and exchange
-assignment/result messages. Define disconnect/handoff behavior through the same
-authority contract; do not equate opening a connection with being enrolled.
+**Local lifecycle implemented:** independently started compatible clients/bridges
+use private Unix sockets and explicit, expiring one-use invitations. Go binds
+AgentID/SessionID to its registry incarnation; heartbeats and disconnect/handoff
+are fenced against that binding. Handoff here disconnects; it transfers no claims.
+Advertisements grant no assigned role. Assignment/progress/result execution is
+deliberately rejected until later integration. See [Phase 4 usage and security
+limits](docs/agent-attachment.md). There is no remote/public transport.
 
 ### Phase 5 — Planner enrollment/selection
 

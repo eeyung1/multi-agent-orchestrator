@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/strictjson"
@@ -37,6 +38,31 @@ func Decode(data []byte, origin Origin) (Envelope, error) {
 	var e Envelope
 	if err := strictjson.Decode(data, &e); err != nil {
 		return Envelope{}, fmt.Errorf("decode agent envelope: %w", err)
+	}
+	// V2 fields must remain unknown on the V1 wire, even when null/zero values
+	// would disappear into Go zero values. The strict decode above already
+	// rejects duplicates/unknown fields for the shared envelope model.
+	if e.ProtocolVersion == Version1 {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return Envelope{}, errors.New("invalid v1 envelope")
+		}
+		for name, value := range fields {
+			if strings.EqualFold(name, "invitation") || strings.EqualFold(name, "acknowledgment") {
+				return Envelope{}, errors.New("v2 fields are not permitted on v1")
+			}
+			if strings.EqualFold(name, "enrollment") {
+				var decision map[string]json.RawMessage
+				if err := json.Unmarshal(value, &decision); err != nil {
+					return Envelope{}, errors.New("invalid v1 enrollment decision")
+				}
+				for key := range decision {
+					if strings.EqualFold(key, "session_generation") {
+						return Envelope{}, errors.New("v2 fields are not permitted on v1")
+					}
+				}
+			}
+		}
 	}
 	if err := e.ValidateFrom(origin); err != nil {
 		return Envelope{}, err

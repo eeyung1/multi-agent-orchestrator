@@ -282,6 +282,43 @@ func (r *Registry) Heartbeat(ref Ref) error {
 	})
 }
 
+// LivenessThreshold is immutable trusted policy, not an agent advertisement.
+func (r *Registry) LivenessThreshold() time.Duration { return r.policy.StaleAfter }
+
+// Check fences a connection observation without refreshing liveness or authority.
+func (r *Registry) Check(ref Ref) error {
+	if err := ref.validate(); err != nil {
+		return err
+	}
+	return r.transact("check", func(data *state.AgentRegistryState, _ time.Time) (bool, error) {
+		_, err := verify(data, ref, false)
+		return false, err
+	})
+}
+
+// Disconnect is idempotent for the exact current incarnation. Superseded refs
+// remain fenced; a delayed connection close cannot disconnect a replacement.
+func (r *Registry) Disconnect(ref Ref, reason string) error {
+	if err := ref.validate(); err != nil {
+		return err
+	}
+	if err := state.RegistryDecision(reason); err != nil {
+		return err
+	}
+	return r.transact("disconnect", func(data *state.AgentRegistryState, now time.Time) (bool, error) {
+		s, err := verify(data, ref, true)
+		if err != nil {
+			return false, err
+		}
+		if s.Status == Disconnected {
+			return false, nil
+		}
+		s.Status, s.StateReason, s.StateChangedAt, s.DisconnectedAt = Disconnected, reason, now, &now
+		data.Sessions[ref.SessionID] = s
+		return true, nil
+	})
+}
+
 func (r *Registry) List() ([]View, error) {
 	var result []View
 	err := r.transact("observe", func(data *state.AgentRegistryState, now time.Time) (bool, error) {

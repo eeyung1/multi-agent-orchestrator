@@ -82,7 +82,7 @@ func TestProviderMetadataCannotImplyRole(t *testing.T) {
 func TestInvalidIdentityFailsClosed(t *testing.T) {
 	cases := map[string]func(*Identity){
 		"missing version":      func(id *Identity) { id.ProtocolVersion = "" },
-		"unsupported version":  func(id *Identity) { id.ProtocolVersion = "orchestrator-agent/v2" },
+		"unsupported version":  func(id *Identity) { id.ProtocolVersion = "orchestrator-agent/v99" },
 		"state version":        func(id *Identity) { id.ProtocolVersion = "orchestrator/v1" },
 		"missing agent":        func(id *Identity) { id.AgentID = "" },
 		"missing session":      func(id *Identity) { id.SessionID = "" },
