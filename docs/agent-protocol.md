@@ -1,14 +1,15 @@
-# Agent protocol: Phase 1
+# Agent protocol and registry: Phases 1–2
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 defines the product goal and roadmap. Phase 1 implements only the provider-neutral
 wire/domain model in `internal/agentprotocol`. Nothing in this package connects,
 enrolls, persists, schedules, supervises, or authenticates an agent.
 
-Existing managed CLI adapters, Planner configuration, `controller.WorkerContext`,
-structured-state schema and coordination lifecycle are unchanged. A subprocess
-receiving WorkerContext is not thereby universally enrolled. Phases 2+ must
-integrate this model with Go authority before using it for live participants.
+Phase 2 adds the authoritative internal Go registry in `internal/agentregistry`,
+persisted inside structured state schema 2. Existing managed CLI adapters, Planner
+configuration, `controller.WorkerContext` and their operational coordination
+lifecycle remain unchanged. Receiving WorkerContext does not enroll a subprocess
+in the registry. Transport/adapters must be integrated in later phases.
 
 ## Version and identity
 
@@ -33,8 +34,9 @@ protocol and from WorkerContext's natural-language `protocol` instructions.
 AgentID and SessionID are distinct Go types and namespaces. A new runtime can
 describe the same logical AgentID with a different SessionID. Even equal textual
 values do not make the two concepts interchangeable. This model neither issues
-identities nor authorizes their reuse: stable identity verification, session
-admission and reconnect fencing belong to later phases. Neither ID is a secret
+identities nor authorizes their reuse. Phase 2 authoritatively admits sessions and
+issues/fences their incarnations through internal Go APIs. Transport identity
+authentication and reconnect handling remain later work. Neither ID is a secret
 credential or an ownership grant.
 
 Provider/runtime values are free metadata, with no known-provider enum or lookup.
@@ -61,8 +63,9 @@ are valid; unknown roles, including `ORCHESTRATOR`, are invalid.
 `EnrollmentState` defines only `REQUESTED`, `ADMITTED`, and `REJECTED`. An
 enrollment response describes ADMITTED or REJECTED, with a reason required for
 rejection. These are model values, not implemented transitions or durable
-admission decisions. READY/BUSY/BLOCKED/DISCONNECTED registry state, heartbeat
-timers, stale detection and reconnect behavior are Phase 2 work.
+admission decisions. Phase 2 maintains separate operational registry states
+READY/BUSY/BLOCKED/DISCONNECTED; protocol messages do not apply those transitions
+themselves. No heartbeat timer or reconnect transport is implemented.
 
 ## Envelope and message direction
 
@@ -159,11 +162,156 @@ and verifies that protocol processing leaves authoritative state unchanged.
 
 ## Explicit Phase 1 boundary
 
-There is no authoritative agent registry, dynamic enrollment service, external
-attachment, reconnect handling, connected-agent Planner election, capability
-matching scheduler, transport abstraction implementation, or new networking.
+The protocol model alone grants no authority. Phase 2 now provides an internal Go
+registry, but there is no dynamic enrollment service, external attachment,
+reconnect transport, connected-agent Planner election, capability-matching
+scheduler dispatch, transport abstraction implementation, or new networking.
 Managed CLI adapters have not been replaced or silently declared protocol-enrolled.
 Future phases must preserve Go's sole authority and explicit human authorization;
 silence, provider identity, advertised roles/capabilities and connection state
 never imply permission. This remains local orchestration, not an OS/container
 sandbox or distributed multi-host coordination.
+
+## Phase 2: authoritative registry and liveness
+
+`internal/agentregistry` is a trusted internal Go boundary, not a wire handler or
+an authentication system. Agents advertise facts; Go decides admission, assigned
+roles and lifecycle changes. AgentID, provider metadata and a numeric incarnation
+are not credentials. Future transports must authenticate/bind a participant to
+its admitted session before invoking these APIs. No authentication token or
+shared secret has been invented for this phase.
+
+### Persistence and compatibility
+
+Registry data lives under `agent_registry` in the existing
+`multi-agent-orchestrator/state.json`, with its existing repository identity,
+state lock, 0600 temporary file, fsync and atomic rename. Parent-directory fsync
+also checks publication durability. There is no separate registry file or
+Markdown registry/heartbeat authority. Records retain identity/metadata,
+capabilities, supported/assigned roles, admission/role decisions, status,
+enrollment/last-seen/state-change timestamps, incarnation, and terminal/supersession
+information. All incarnations remain historical evidence; they are not pruned.
+
+The existing managed `Sessions`, `Claims` and `Tasks` continue to represent
+managed execution. They are not silently converted to universal enrollments.
+Registry session IDs cannot overlap session IDs referenced by managed sessions,
+claims, tasks or assignment history. This is checked on both reads and writes
+under the same state authority. Later adapter integration must deliberately bind
+these lifecycles without maintaining competing copies of the same fact.
+
+State schema 1 is migrated to schema 2 under the existing state lock. Migration
+preserves ownership/results/history and adds one audited authority revision; it
+does not enroll agents or create registry records. **Stop older controller
+binaries before upgrading.** Fresh older binaries reject schema 2, but already
+running older writers cannot be retroactively upgraded. A missing registry with
+durable registry history is rejected rather than interpreted as an empty registry.
+Do not downgrade/edit state to retry. Existing provider configuration needs no
+migration and current dispatch still uses its configured adapters.
+
+Reads reject unknown/duplicate JSON fields, malformed identities/roles, invalid
+policy/timestamps, missing history, duplicate incarnations, broken supersession
+chains and unsupported schemas. Errors do not reset or overwrite malformed
+state. Pre-rename write failures retain the prior snapshot. A post-rename
+directory-sync failure is reported, and the caller must reread to determine
+whether publication occurred; an error is not proof that nothing was committed.
+Existing/contended locks are never stolen based on age. These are local filesystem
+guarantees, not distributed consensus or containment against unrestricted writers.
+
+### Internal API and role boundary
+
+Open with explicit trusted policy and an optional concurrency-safe clock:
+
+```go
+registry, err := agentregistry.Open(workspace,
+    agentregistry.Policy{StaleAfter: 90 * time.Second}, nil) // nil uses time.Now
+```
+
+This is an internal Go example, not a new Planner config field or attach command.
+The positive threshold is persisted in nanoseconds on initialization; reopen must
+supply the same policy. There is no silent default or policy replacement API.
+The repository must already have explicit ORCHESTRATOR authority enrollment.
+
+| API | Authority/behavior |
+| --- | --- |
+| `Enroll(Enrollment)` | Validates Phase 1 identity and non-secret Go decision provenance; creates READY with no assigned role and a Go-issued incarnation. |
+| `AssignRole(ref, role, decision)` / `ClearRole(ref, decision)` | Explicit Go role decisions; assigned role must be supported. Roles cannot change while BUSY. No global/objective Planner election is performed. |
+| `Register(ref, identity)` | Replaces advertised metadata/capabilities/supported roles without changing identity, incarnation, assigned role or last-seen. Cannot withdraw an assigned role or replace BUSY advertisements. |
+| `Heartbeat(ref)` | Updates only the current live session's last-seen timestamp; never assigns roles or alters task ownership/claims/assignment generations. |
+| `Transition(ref, status, reason)` | Validates explicit lifecycle changes; BUSY requires an assigned protocol role. Marks no scheduler task or worktree as assigned. |
+| `Get(sessionID)` / `List()` | Returns records with current/live flags, in generation order for List; observes and durably applies due expiry. |
+| `Eligible(role, capability)` | Returns current, live, READY sessions with that explicitly assigned/supported role and exact registered capability. It is a snapshot, not a reservation or execution grant. |
+
+Every mutable session API requires AgentID, SessionID and the exact issued
+`session_generation` in `Ref`. `View.Ref()` provides this fence. Capabilities and
+roles use Phase 1 validation, including deterministic duplicate rejection and
+case-sensitive capability names. Provider names do not select roles. Multiple
+planning-capable sessions may be assigned the Planner responsibility here; Phase 5
+will enforce objective/session Planner selection centrally, with human approval.
+
+### Incarnation, supersession and ownership fencing
+
+`Enrollment` contains identity, decision provenance and optional `Supersedes`.
+It cannot choose its issued generation or assigned role. First admission has no
+previous-incarnation fence. Re-enrolling the same AgentID requires a fresh,
+never-used SessionID and an exact `Supersedes` reference to the current incarnation.
+This compare-and-swap prevents delayed/concurrent admission decisions from
+replacing a newer session. New admission starts unassigned; the old incarnation
+is atomically retained as DISCONNECTED with `superseded_by` information.
+
+An old heartbeat, advertisement, role decision or lifecycle update cannot restore
+old authority. A disconnected current session can only be superseded by this
+explicit new-session admission; no same-session resurrection/reconnect is provided.
+After uncertain publication, inspect the stored session instead of reusing IDs or
+guessing a generation. Identity/capability advertisements and decision strings
+are not transport credentials.
+
+| Counter | Meaning |
+| --- | --- |
+| `agent_registry.last_session_generation` / session `session_generation` | Separate typed enrollment incarnation; advances only on successful new admission. |
+| Task `assignment_generation` | Existing scheduler-issued ownership generation; registry operations never mint/change it. |
+| `Authority.Generation` | Existing shared state revision/audit counter; advances on registry writes as on other state writes. |
+
+Registry expiry/disconnect/supersession never releases claims, changes scheduler
+ownership, or authorizes recovery. Future dispatch must check eligibility and
+existing assignment guards atomically at the actual admission boundary. A BUSY
+registry flag by itself does not establish a task assignment.
+
+### Lifecycle and deterministic liveness
+
+| From | Allowed explicit next states |
+| --- | --- |
+| Admission | READY, unassigned. |
+| READY | BUSY, DISCONNECTED. |
+| BUSY | READY, BLOCKED, DISCONNECTED. |
+| BLOCKED | READY, DISCONNECTED. |
+| DISCONNECTED | None; explicit fresh-session admission is required. |
+
+Self/unknown transitions fail closed. Last-seen changes only on admission and
+accepted heartbeat. A session is live through the exact configured threshold;
+it expires when `now > last_seen + StaleAfter`. Every registry observation/update
+checks expiry under the state lock and persists DISCONNECTED with reason
+`heartbeat_timeout` before processing the requested action. There is no background
+monitor, timer, sleep-based liveness test or claim takeover.
+
+A late heartbeat returns a fencing error **while safely persisting the timeout**.
+Read-only Get/List/Eligible can write when they observe due expiry; otherwise they
+do not advance state. An injected clock is sampled under the lock; clock rollback
+behind durable observations fails closed. Terminal expiry cannot be reversed by
+a delayed heartbeat or clock change. Storage failure prevents successful
+eligibility/admission responses. Decision/role/advertisement updates do not count
+as heartbeats.
+
+The implementation uses the existing local state lock for concurrent Go handles
+and callers, so admission/supersession, liveness, role and capability operations
+are serialized against other state changes. No cross-file registry transaction
+is needed. Existing Markdown completion's separate durable-write boundary has
+not been changed or presented as a cross-file transaction.
+
+### What remains unimplemented
+
+There are no sockets, HTTP/RPC/IPC/stdio bridges, remote agents, independently
+started agent attachment, transport reconnect, dynamic Planner execution, or
+scheduler dispatch to enrolled heterogeneous workers. There is no connected-agent
+CLI/dashboard. Current Codex/Claude/Gemini subprocesses still use their established
+managed lifecycle and are not auto-enrolled. Phase 3+ must integrate adapters,
+transport authentication/session binding, execution and eligibility safely.
