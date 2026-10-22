@@ -1,4 +1,4 @@
-# Agent protocol, registry and transport: Phases 1–3
+# Agent protocol, registry, transport and local attachment: Phases 1–4
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 defines the product goal and roadmap. Phase 1 implements only the provider-neutral
@@ -11,13 +11,16 @@ configuration, `controller.WorkerContext` and their operational coordination
 lifecycle remain unchanged. Receiving WorkerContext does not enroll a subprocess
 in the registry. Phase 3 adds the separate `internal/agenttransport` library for
 validated envelope delivery, with bounded in-memory endpoints and generic NDJSON
-stream framing. It has no authority handlers. Managed adapters and admission must
-be integrated in later phases; see [the transport contract](agent-transport.md).
+stream framing. It has no authority handlers. Managed adapter integration remains
+future work; see [the transport contract](agent-transport.md).
+Phase 4 adds a separate local admission/session handler and Unix listener; see
+[local attachment](agent-attachment.md). Existing managed dispatch is unchanged.
 
 ## Version and identity
 
-`ProtocolVersion` currently accepts exactly `orchestrator-agent/v1`. Missing or
-unknown versions fail closed; no version negotiation or downgrade is implemented.
+`ProtocolVersion` accepts `orchestrator-agent/v1` and `orchestrator-agent/v2`.
+V1 retains its existing serialization/shape behavior; Phase 4 local attachment
+requires V2. Missing/unknown versions fail closed, without negotiation/downgrade.
 Future wire-shape changes require an explicitly supported version and compatibility
 tests; adding a provider name or capability does not require a new version.
 This namespace is separate from the existing `orchestrator/v1` structured-state
@@ -39,7 +42,8 @@ describe the same logical AgentID with a different SessionID. Even equal textual
 values do not make the two concepts interchangeable. This model neither issues
 identities nor authorizes their reuse. Phase 2 authoritatively admits sessions and
 issues/fences their incarnations through internal Go APIs. Transport identity
-authentication and reconnect handling remain later work. Neither ID is a secret
+authentication now uses local one-use invitations; same-session reconnect remains
+unimplemented. Neither ID is a secret
 credential or an ownership grant.
 
 Provider/runtime values are free metadata, with no known-provider enum or lookup.
@@ -65,10 +69,11 @@ are valid; unknown roles, including `ORCHESTRATOR`, are invalid.
 
 `EnrollmentState` defines only `REQUESTED`, `ADMITTED`, and `REJECTED`. An
 enrollment response describes ADMITTED or REJECTED, with a reason required for
-rejection. These are model values, not implemented transitions or durable
-admission decisions. Phase 2 maintains separate operational registry states
+rejection. These model values alone perform no admission; Phase 4 applies local
+admission decisions through Go. Phase 2 maintains separate operational registry states
 READY/BUSY/BLOCKED/DISCONNECTED; protocol messages do not apply those transitions
-themselves. No heartbeat timer or reconnect transport is implemented.
+themselves. There is no registry background heartbeat timer or same-session
+reconnect transport; Phase 4's example client explicitly sends heartbeats.
 
 ## Envelope and message direction
 
@@ -166,9 +171,9 @@ and verifies that protocol processing leaves authoritative state unchanged.
 ## Explicit Phase 1 boundary
 
 The protocol model alone grants no authority. Phase 2 now provides an internal Go
-registry, but there is no dynamic enrollment service, external attachment,
-reconnect transport, connected-agent Planner election, capability-matching
-scheduler dispatch, or new networking. Phase 3's transport library is separate
+registry and Phase 4 supplies local invitation admission. There is no remote
+attachment, same-session reconnect, enrolled Planner election or capability-matching
+scheduler dispatch. Phase 3's transport library is separate
 from this pure model and performs no authoritative handling.
 Managed CLI adapters have not been replaced or silently declared protocol-enrolled.
 Future phases must preserve Go's sole authority and explicit human authorization;
@@ -313,14 +318,14 @@ not been changed or presented as a cross-file transaction.
 
 ### What remains unimplemented
 
-There are no sockets, HTTP/RPC/IPC/stdio bridges, remote agents, independently
-started agent attachment, transport reconnect, dynamic Planner execution, or
-scheduler dispatch to enrolled heterogeneous workers. There is no connected-agent
-CLI/dashboard. Current Codex/Claude/Gemini subprocesses still use their established
+Phase 4 now adds Unix-local attachment and a generic bridge example. There are
+no HTTP/RPC/stdio provider bridges, remote agents, same-session reconnect, dynamic Planner execution, or
+scheduler dispatch to enrolled heterogeneous workers. The local trusted console
+can list agents; there is no full connected-agent dashboard. Current
+Codex/Claude/Gemini subprocesses still use their established
 managed lifecycle and are not auto-enrolled. Phase 3 provides an internal transport
-interface and stream framing, not a process bridge or attachment service. Phase 4+
-must integrate adapters,
-transport authentication/session binding, execution and eligibility safely.
+interface and stream framing; Phase 4 adds local admission/session binding.
+Later phases must integrate provider adapters, execution and eligibility safely.
 
 ## Phase 3: transport validation boundary
 
@@ -334,10 +339,42 @@ them to redacted error categories without exposing decoder input or claim tokens
 
 The returned message remains untrusted with respect to authority: delivery is not
 enrollment, a heartbeat write, a role decision, task admission or result acceptance.
-The transport imports no registry/scheduler/provider APIs. A future Go handler
-must bind the connection to an admitted AgentID/SessionID/registry incarnation,
-then recheck the current registry and existing scheduler ownership gates. No
-binding credential or fake authentication flow is introduced in Phase 3.
+The transport imports no registry/scheduler/provider APIs. Phase 4 now binds
+local connections to admitted AgentID/SessionID/registry incarnations through a
+separate Go handler. It rechecks current registry state; future task handling
+must also enforce existing scheduler ownership gates. Phase 3 itself introduced
+no admission credential or authentication flow.
 
 See [agent-transport.md](agent-transport.md) for concurrency, ordering,
 backpressure, cancellation, close/EOF, and adapter migration semantics.
+
+## Phase 4: V2 local enrollment and bound lifecycle
+
+V2 extends the existing envelope; it does not introduce a separate handshake
+format. Fields added here are rejected on V1 or on unrelated message types:
+
+| Message | V2 fields and rules |
+| --- | --- |
+| `enrollment_request` | Optional model field `invitation: {id, secret}`; mandatory for local admission. ID is 32 lowercase hex characters; secret is 64. `identity` remains required and must match the envelope. No request chooses an incarnation. |
+| `enrollment_response` | ADMITTED requires nonzero `enrollment.session_generation`, issued by Go. REJECTED must not carry a generation. |
+| `session_acknowledgment` | Go-only message with `acknowledgment: {for, session_generation}`. `for` is heartbeat, disconnect or handoff; generation is nonzero. No identity/role/assignment payload is allowed. |
+
+Only the attachment handler interprets invitations. The protocol/transport merely
+validate their shape and direction. Never log enrollment envelopes or invitation
+proofs. The secret is a local bearer credential, not vendor identity or a task
+claim. The handler keeps its own `agentregistry.Ref`, verifies every post-bind
+identity and current incarnation, and accepts only unassigned heartbeat and
+disconnect/handoff messages. Advertisements stay advertisements; enrollment assigns
+no Planner/Worker responsibility. Later-phase messages terminate the connection.
+
+Heartbeat acknowledgment follows the durable last-seen update. Disconnect/handoff
+acknowledgment follows fenced durable disconnection; the client then closes the
+transport. The server waits for that close under the existing idle deadline so an
+abortive transport close does not discard a queued terminal acknowledgment.
+This acknowledges the lifecycle operation, not durable task/result acceptance.
+
+No structured-state schema or assignment identity changes. V2 identities are
+stored in the existing registry. Upgrade all writers before admitting V2 sessions:
+older binaries reject identities using unsupported protocol versions. Existing
+V1 models, provider configuration and managed workflow behavior remain supported
+by the upgraded binary. See [attachment operations and crash boundaries](agent-attachment.md).

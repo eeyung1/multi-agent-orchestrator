@@ -2,7 +2,8 @@
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 remains the product architecture. `internal/agenttransport` implements a message
-boundary, not an attachment service or authority handler. Phase 1 provides
+boundary, not an attachment service or authority handler. Phase 4 now supplies
+the separate [local attachment handler](agent-attachment.md). Phase 1 provides
 identity/envelopes; Phase 2 provides the authoritative internal registry and
 liveness. This phase adds the interface, in-memory transport and generic NDJSON
 stream framing. It does not integrate current providers with the registry.
@@ -14,7 +15,7 @@ provider/runtime <-> provider adapter <-> protocol envelopes
                                             |
                                          transport
                                             |
-                              future Go admission/session handler
+                              Go admission/session handler (Phase 4)
                                             |
                               registry / scheduler / execution guards
 ```
@@ -124,7 +125,7 @@ names or underlying I/O error text. Simultaneous close/cancellation/failure may
 determine which terminal error an in-flight operation observes; later operations
 consistently return ErrClosed. Close returning an error still leaves it terminal.
 
-## Future admission and session binding
+## Admission and session binding outside transport
 
 Transport is not authentication. A process capable of writing bytes is not
 automatically enrolled. AgentID and SessionID are identifiers, not credentials.
@@ -132,20 +133,22 @@ Even a well-formed role/assignment/enrollment response is only data at this laye
 Transport never calls registry mutation methods, issues an incarnation, mints a
 claim or scheduler generation, assigns roles, or admits execution.
 
-A future trusted Go admission handler must authenticate/admit a participant and
-privately bind its transport to the existing `agentregistry.Ref` (AgentID,
+The Phase 4 Go admission handler authorizes local participants using one-use
+invitations and privately binds the transport to `agentregistry.Ref` (AgentID,
 SessionID, Go-issued session generation). There is no transport self-bind API or
-duplicate binding/ownership identity type here. The current envelope does not
-carry registry incarnation; the future handler must retain its trusted binding
-and recheck it against current registry state when handling updates. Assignment
+duplicate binding/ownership identity type here. V2 enrollment responses and
+lifecycle acknowledgments report registry incarnation, but requests do not select
+it. The handler retains its trusted binding and rechecks current registry state.
+Assignment
 messages also need the existing scheduler AssignmentRef/ownership checks.
 Transport itself deliberately permits different syntactically valid session
 identities; syntax/direction validation alone cannot establish session ownership.
 
-Not implemented: independently started agent attachment, public listeners,
-HTTP/RPC/IPC/socket/stdio process bridges, authentication/admission transport,
-transport reconnect, dynamic Planner execution, enrolled-worker scheduler
-dispatch, or remote agents. Opening/closing a stream or receiving a heartbeat
-does not update registry liveness. Human authorization, review and final
+Phase 4 implements independently started compatible local clients over Unix IPC,
+with bounded admission and session handling outside this package. Public/remote
+listeners, HTTP/RPC/stdio provider bridges, same-session reconnect, dynamic Planner
+execution and enrolled-worker dispatch remain unimplemented. Transport alone
+still does not update registry liveness; Phase 4's handler applies bound messages.
+Human authorization, review and final
 merge/deployment authority remain intact. Local orchestration is not an
 OS/container sandbox; local filesystem locks are not multi-host consensus.

@@ -17,8 +17,12 @@ type ProtocolVersion string
 
 const Version1 ProtocolVersion = "orchestrator-agent/v1"
 
+// Version2 adds local invitation enrollment and session acknowledgments. V1
+// remains supported for existing models/adapters; it cannot use V2-only fields.
+const Version2 ProtocolVersion = "orchestrator-agent/v2"
+
 func (v ProtocolVersion) Validate() error {
-	if v != Version1 {
+	if v != Version1 && v != Version2 {
 		return ErrUnsupportedVersion
 	}
 	return nil

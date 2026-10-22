@@ -19,6 +19,7 @@ const (
 	Heartbeat              MessageType = "heartbeat"
 	Handoff                MessageType = "handoff"
 	Disconnect             MessageType = "disconnect"
+	SessionAcknowledgment  MessageType = "session_acknowledgment"
 )
 
 // Origin must be supplied by a trusted caller, not decoded from message data.
@@ -32,8 +33,40 @@ const (
 
 // EnrollmentDecision describes a future Go admission response, not a state write.
 type EnrollmentDecision struct {
-	State  EnrollmentState `json:"state"`
-	Reason string          `json:"reason,omitempty"`
+	State             EnrollmentState `json:"state"`
+	Reason            string          `json:"reason,omitempty"`
+	SessionGeneration uint64          `json:"session_generation,omitempty"`
+}
+
+// InvitationProof is a sensitive one-use local bearer credential, not proof of
+// provider identity. It is permitted only in a V2 enrollment request; never log it.
+type InvitationProof struct {
+	ID     string `json:"id"`
+	Secret string `json:"secret"`
+}
+
+func (p InvitationProof) Validate() error {
+	for _, f := range []struct {
+		value string
+		size  int
+	}{{p.ID, 32}, {p.Secret, 64}} {
+		if len(f.value) != f.size {
+			return errors.New("invalid invitation proof")
+		}
+		for _, c := range f.value {
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return errors.New("invalid invitation proof")
+			}
+		}
+	}
+	return nil
+}
+
+// SessionAck is Go-origin confirmation of a lifecycle operation, not an
+// assignment or role grant. Requests never select a registry incarnation.
+type SessionAck struct {
+	For               MessageType `json:"for"`
+	SessionGeneration uint64      `json:"session_generation"`
 }
 
 // Envelope is a transport-neutral Phase 1 message. AgentID/SessionID always
@@ -51,6 +84,8 @@ type Envelope struct {
 	Role            Role                `json:"role,omitempty"`
 	Assignment      *AssignmentRef      `json:"assignment,omitempty"`
 	Detail          string              `json:"detail,omitempty"`
+	Invitation      *InvitationProof    `json:"invitation,omitempty"`
+	Acknowledgment  *SessionAck         `json:"acknowledgment,omitempty"`
 }
 
 func (e Envelope) Validate() error {
@@ -81,8 +116,29 @@ func (e Envelope) Validate() error {
 		optionalAssignment = true
 	case Handoff, Disconnect:
 		optionalAssignment, detail = true, true
+	case SessionAcknowledgment:
+		if e.ProtocolVersion != Version2 || e.Acknowledgment == nil {
+			return errors.New("session acknowledgment requires v2")
+		}
 	default:
 		return ErrUnsupportedMessageType
+	}
+	if e.Invitation != nil {
+		if e.ProtocolVersion != Version2 || e.Type != EnrollmentRequest {
+			return errors.New("invitation is only permitted in v2 enrollment request")
+		}
+		if err := e.Invitation.Validate(); err != nil {
+			return err
+		}
+	}
+	if e.Type != SessionAcknowledgment && e.Acknowledgment != nil {
+		return errors.New("unexpected session acknowledgment")
+	}
+	if e.Acknowledgment != nil {
+		a := e.Acknowledgment
+		if a.SessionGeneration == 0 || (a.For != Heartbeat && a.For != Disconnect && a.For != Handoff) {
+			return errors.New("invalid session acknowledgment")
+		}
 	}
 	if (e.Identity != nil) != identity || (e.Enrollment != nil) != enrollment || (e.Role != "") != role {
 		return errors.New("message fields do not match message type")
@@ -96,6 +152,11 @@ func (e Envelope) Validate() error {
 		}
 	}
 	if enrollment {
+		if e.ProtocolVersion == Version1 && e.Enrollment.SessionGeneration != 0 ||
+			e.Enrollment.State != EnrollmentAdmitted && e.Enrollment.SessionGeneration != 0 ||
+			e.ProtocolVersion == Version2 && e.Enrollment.State == EnrollmentAdmitted && e.Enrollment.SessionGeneration == 0 {
+			return errors.New("invalid enrollment session generation")
+		}
 		if err := e.Enrollment.State.Validate(); err != nil {
 			return err
 		}
@@ -144,7 +205,7 @@ func (e Envelope) ValidateFrom(origin Origin) error {
 	}
 	want := FromAgent
 	switch e.Type {
-	case EnrollmentResponse, RoleAssignment, Assignment:
+	case EnrollmentResponse, RoleAssignment, Assignment, SessionAcknowledgment:
 		want = FromOrchestrator
 	}
 	if origin != want {
