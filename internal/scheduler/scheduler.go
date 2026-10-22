@@ -324,6 +324,46 @@ func Register(workspace string, plan objective.Plan, authority state.Objective) 
 	})
 }
 
+// ReauthorizePolicy updates only the trusted execution-policy authorization for
+// an existing objective. Plan and recon digests are fenced so this operation
+// cannot silently authorize changed work or changed repository instructions.
+func ReauthorizePolicy(workspace, objectiveID, expectedPlanDigest, expectedPolicyDigest, expectedReconDigest, newPolicyDigest, human string) error {
+	if strings.TrimSpace(human) == "" {
+		return errors.New("explicit human policy reauthorization is required")
+	}
+	if strings.TrimSpace(newPolicyDigest) == "" {
+		return errors.New("new policy digest is required")
+	}
+	primary, err := repository.Primary(workspace)
+	if err != nil {
+		return err
+	}
+	id, err := repository.Identity(primary)
+	if err != nil {
+		return err
+	}
+	store, err := state.Open(primary, id)
+	if err != nil {
+		return err
+	}
+	return store.Update("ORCHESTRATOR", "reauthorize-objective-policy", func(s *state.Snapshot) error {
+		o, ok := s.Objectives[objectiveID]
+		if !ok {
+			return errors.New("objective not found")
+		}
+		if o.AuthorizedBy == "" {
+			return errors.New("objective has no prior human authorization")
+		}
+		if o.PlanDigest != expectedPlanDigest || o.PolicyDigest != expectedPolicyDigest || o.ReconDigest != expectedReconDigest {
+			return errors.New("objective authorization changed during policy reauthorization")
+		}
+		o.PolicyDigest = newPolicyDigest
+		o.AuthorizedBy = human
+		s.Objectives[objectiveID] = o
+		return nil
+	})
+}
+
 func Verify(workspace, objectiveID string, a Result) error {
 	s, err := Read(workspace)
 	if err != nil {
