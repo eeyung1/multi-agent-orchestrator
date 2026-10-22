@@ -86,6 +86,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	workerIDs := flags.String("workers", "", "comma-separated built-in worker providers")
 	maxWorkers := flags.Int("max-workers", 0, "maximum concurrent workers (defaults to trusted policy)")
 	list := flags.Bool("list-providers", false, "list installed compatible adapters without running them")
+	configurePreparation := flags.Bool("configure-preparation", false, "explicitly update trusted worktree preparation policy")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -165,6 +166,14 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			return errors.New("decision required: competing instructions/tooling appeared after native enrollment")
 		}
 	}
+	if *configurePreparation {
+		if missingPolicy {
+			return errors.New("no existing trusted policy to update; complete initial policy bootstrap first")
+		}
+		if err := configurePreparationPolicy(reader, out, primary, *configPath, &c); err != nil {
+			return err
+		}
+	}
 	objectiveID := *resume
 	if objectiveID == "" && *requested == "" {
 		s, err := scheduler.Read(primary)
@@ -222,6 +231,20 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	}
 	if err := c.ValidateAdapters(primary); err != nil {
 		return err
+	}
+	if objectiveID != "" && saved.PolicyDigest != controller.PolicyDigest(c) {
+		fmt.Fprintln(out, "The trusted execution policy differs from the policy previously authorized for this saved objective.")
+		yes, err := confirm(reader, out, "Authorize this saved objective to continue under the currently displayed/configured trusted execution policy? [y/N] ")
+		if err != nil {
+			return err
+		}
+		if !yes {
+			return errors.New("saved objective policy reauthorization was not authorized")
+		}
+		if err := controller.ReauthorizePolicy(primary, objectiveID, c, "interactive user explicitly reauthorized saved objective execution policy"); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "Saved objective execution policy reauthorized. Plan, task ownership, results, and repository instruction boundary were unchanged.")
 	}
 	if objectiveID == "" {
 		text := strings.TrimSpace(*requested)
