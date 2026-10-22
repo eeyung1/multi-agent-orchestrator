@@ -41,6 +41,12 @@ foundations, not external attachment. Existing managed adapters, worker context,
 configuration and dispatch remain unchanged and do not automatically enroll agents
 in this registry.
 
+Phase 3 adds `internal/agenttransport`: a common message interface, bounded
+in-memory endpoints, and generic NDJSON framing for already-open interruptible
+streams. These move strictly validated envelopes without applying authority
+decisions. See [transport semantics and boundaries](docs/agent-transport.md).
+There is no listener, external attach workflow, or managed-provider migration yet.
+
 ### Start the managed Planner workflow
 
 Start the Planner, choose a repository, and describe the objective:
@@ -208,8 +214,9 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 
 ## Universal Agent Enrollment & Transport Protocol
 
-**Roadmap / in development.** Phase 1's wire/domain model and Phase 2's internal
-registry/liveness foundation are implemented; Phases 3–8 remain future work. This
+**Roadmap / in development.** Phase 1's wire/domain model, Phase 2's internal
+registry/liveness foundation, and Phase 3's transport library are implemented;
+Phases 4–8 remain future work. This
 milestone extends the existing control-plane
 foundations with dynamic agent admission and a common logical contract. The
 following complete lifecycle remains the target; the internal APIs do not provide
@@ -300,9 +307,14 @@ dynamic Planner execution, or scheduler dispatch to enrolled agents. See the
 
 ### Phase 3 — Transport abstraction
 
-Define a common transport interface and preserve existing managed CLI adapters
-behind it. Transport/adapter code translates messages; Go retains all scheduling,
-ownership, admission and result-authority semantics.
+**Library foundation implemented:** a common Send/Receive/Close interface,
+bounded duplex in-memory transport, and strict size-bounded NDJSON stream framing.
+Transport moves messages; provider adapters translate provider-specific requests
+and output. Go retains all scheduling, ownership, admission and result-authority
+semantics. Existing managed CLI adapters remain working and unchanged; migrating
+them behind protocol bridges remains future integration. There is no external
+attachment, public listener, or transport authentication/admission handler. See
+[the Phase 3 contract](docs/agent-transport.md).
 
 ### Phase 4 — External/local attachment
 

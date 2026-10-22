@@ -1,4 +1,4 @@
-# Agent protocol and registry: Phases 1–2
+# Agent protocol, registry and transport: Phases 1–3
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 defines the product goal and roadmap. Phase 1 implements only the provider-neutral
@@ -9,7 +9,10 @@ Phase 2 adds the authoritative internal Go registry in `internal/agentregistry`,
 persisted inside structured state schema 2. Existing managed CLI adapters, Planner
 configuration, `controller.WorkerContext` and their operational coordination
 lifecycle remain unchanged. Receiving WorkerContext does not enroll a subprocess
-in the registry. Transport/adapters must be integrated in later phases.
+in the registry. Phase 3 adds the separate `internal/agenttransport` library for
+validated envelope delivery, with bounded in-memory endpoints and generic NDJSON
+stream framing. It has no authority handlers. Managed adapters and admission must
+be integrated in later phases; see [the transport contract](agent-transport.md).
 
 ## Version and identity
 
@@ -165,7 +168,8 @@ and verifies that protocol processing leaves authoritative state unchanged.
 The protocol model alone grants no authority. Phase 2 now provides an internal Go
 registry, but there is no dynamic enrollment service, external attachment,
 reconnect transport, connected-agent Planner election, capability-matching
-scheduler dispatch, transport abstraction implementation, or new networking.
+scheduler dispatch, or new networking. Phase 3's transport library is separate
+from this pure model and performs no authoritative handling.
 Managed CLI adapters have not been replaced or silently declared protocol-enrolled.
 Future phases must preserve Go's sole authority and explicit human authorization;
 silence, provider identity, advertised roles/capabilities and connection state
@@ -313,5 +317,27 @@ There are no sockets, HTTP/RPC/IPC/stdio bridges, remote agents, independently
 started agent attachment, transport reconnect, dynamic Planner execution, or
 scheduler dispatch to enrolled heterogeneous workers. There is no connected-agent
 CLI/dashboard. Current Codex/Claude/Gemini subprocesses still use their established
-managed lifecycle and are not auto-enrolled. Phase 3+ must integrate adapters,
+managed lifecycle and are not auto-enrolled. Phase 3 provides an internal transport
+interface and stream framing, not a process bridge or attachment service. Phase 4+
+must integrate adapters,
 transport authentication/session binding, execution and eligibility safely.
+
+## Phase 3: transport validation boundary
+
+`internal/agenttransport` sends/receives `agentprotocol.Envelope`. Incoming bytes
+pass through the same strict `agentprotocol.Decode`, including duplicate/unknown
+field rejection, version/shape checks and trusted direction validation, before
+Receive returns a typed message. Outgoing envelopes must pass ValidateFrom and
+Encode. Protocol wire fields, version, identities and AssignmentRef are unchanged.
+Unsupported versions/types now have exported sentinel errors; the transport maps
+them to redacted error categories without exposing decoder input or claim tokens.
+
+The returned message remains untrusted with respect to authority: delivery is not
+enrollment, a heartbeat write, a role decision, task admission or result acceptance.
+The transport imports no registry/scheduler/provider APIs. A future Go handler
+must bind the connection to an admitted AgentID/SessionID/registry incarnation,
+then recheck the current registry and existing scheduler ownership gates. No
+binding credential or fake authentication flow is introduced in Phase 3.
+
+See [agent-transport.md](agent-transport.md) for concurrency, ordering,
+backpressure, cancellation, close/EOF, and adapter migration semantics.
