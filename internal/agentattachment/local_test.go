@@ -133,10 +133,19 @@ func TestLocalConcurrentIndependentAttachments(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			c, err := DialLocal(ctx, path, identity(name, name+"-run"), proof)
+			if err != nil {
+				err = fmt.Errorf("%s enrollment: %w", name, err)
+			}
 			if err == nil {
 				err = c.Heartbeat(ctx)
+				if err != nil {
+					err = fmt.Errorf("%s heartbeat: %w", name, err)
+				}
 				if err == nil {
 					err = c.Disconnect(ctx)
+					if err != nil {
+						err = fmt.Errorf("%s disconnect: %w", name, err)
+					}
 				}
 				_ = c.Close()
 			}
@@ -145,14 +154,15 @@ func TestLocalConcurrentIndependentAttachments(t *testing.T) {
 	}
 	wg.Wait()
 	close(errCh)
+	_ = l.Close()
+	serverErr := await(t, done)
 	for err := range errCh {
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("client: %v; listener: %v", err, serverErr)
 		}
 	}
-	_ = l.Close()
-	if err := await(t, done); err != nil {
-		t.Fatal(err)
+	if serverErr != nil {
+		t.Fatal(serverErr)
 	}
 	s := readState(t, f)
 	if len(s.AgentRegistry.Sessions) != count {

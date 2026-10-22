@@ -66,6 +66,10 @@ func activate(reader *bufio.Reader, out io.Writer, workspace string, c *controll
 	} else {
 		fmt.Fprintln(out, "Planner activated: trusted custom provider (not a built-in adapter)")
 	}
+	return activateWorkers(reader, out, workspace, c, workerIDs)
+}
+
+func activateWorkers(reader *bufio.Reader, out io.Writer, workspace string, c *controller.Config, workerIDs string) error {
 	if workerIDs == "" && len(c.Workers) == 0 {
 		available := available(workspace, false)
 		if len(available) == 0 {

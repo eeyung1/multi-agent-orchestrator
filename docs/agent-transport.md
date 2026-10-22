@@ -146,8 +146,10 @@ identities; syntax/direction validation alone cannot establish session ownership
 
 Phase 4 implements independently started compatible local clients over Unix IPC,
 with bounded admission and session handling outside this package. Public/remote
-listeners, HTTP/RPC/stdio provider bridges, same-session reconnect, dynamic Planner
-execution and enrolled-worker dispatch remain unimplemented. Transport alone
+listeners, HTTP/RPC/stdio provider bridges, same-session reconnect and enrolled-worker
+dispatch remain unimplemented. Phase 5 adds enrolled Planner request/proposal
+routing in the attachment handler and authoritative selection in the registry;
+transport itself still has no role or request-adoption authority. Transport alone
 still does not update registry liveness; Phase 4's handler applies bound messages.
 Human authorization, review and final
 merge/deployment authority remain intact. Local orchestration is not an

@@ -46,6 +46,8 @@ type AgentSession struct {
 // Current session is derived from the highest generation for each AgentID; no
 // second current-session index or Markdown projection claims that authority.
 type AgentRegistryState struct {
+	PlannerHistory []PlannerBinding                         `json:"planner_history,omitempty"`
+	Planners       map[string]PlannerBinding                `json:"planners,omitempty"`
 	StaleAfterNS   time.Duration                            `json:"stale_after_ns"`
 	LastGeneration AgentSessionGeneration                   `json:"last_session_generation"`
 	ObservedAt     time.Time                                `json:"observed_at"`
@@ -66,6 +68,9 @@ func RegistryDecision(value string) error {
 }
 
 func (s Snapshot) validateAgentRegistry() error {
+	if err := s.validatePlannerObjectives(); err != nil {
+		return err
+	}
 	r := s.AgentRegistry
 	if r == nil {
 		for _, event := range s.Events {
@@ -75,11 +80,24 @@ func (s Snapshot) validateAgentRegistry() error {
 		}
 		return nil
 	}
-	if s.Authority.Schema != SchemaVersion || r.StaleAfterNS <= 0 || r.ObservedAt.IsZero() || r.Sessions == nil {
+	if (s.Authority.Schema != SchemaVersion && s.Authority.Schema != 2) || r.StaleAfterNS <= 0 || r.ObservedAt.IsZero() || r.Sessions == nil {
 		return errors.New("malformed agent registry header")
 	}
 	if uint64(len(r.Sessions)) != uint64(r.LastGeneration) {
 		return errors.New("agent registry incarnation history is incomplete")
+	}
+	if len(r.Planners) == 0 {
+		for _, event := range s.Events {
+			if event.Operation == "agent-registry-planner-selection" {
+				return errors.New("Planner bindings missing despite selection history")
+			}
+		}
+	}
+	if err := r.validatePlanners(); err != nil {
+		return err
+	}
+	if s.Authority.Schema < 3 && (len(r.Planners) > 0 || len(r.PlannerHistory) > 0) {
+		return errors.New("Planner state requires schema 3")
 	}
 	legacy := map[string]bool{}
 	for id := range s.Sessions {

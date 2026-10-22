@@ -1,12 +1,14 @@
-# Local agent attachment: Phase 4
+# Local agent attachment: Phases 4–5
 
 This is the local admission/liveness foundation for independently started
-compatible agents or bridges. It does not select an enrolled Planner, dispatch
-coding tasks to enrolled workers, or replace the existing managed Planner flow.
+compatible agents or bridges. Phase 5 adds human-selected enrolled Planner
+execution through a run-hosted listener; see [enrolled Planner operation](enrolled-planner.md).
+It does not dispatch coding tasks to enrolled workers or replace managed defaults.
 "Any compatible agent" means a runtime with a bridge/client implementing the
 universal protocol; a closed product without an integration surface cannot attach
 automatically. The included bridge is a provider-neutral liveness example, not an
-AI model or coding adapter.
+AI model or coding adapter. Its optional `--proposal-file` mode exercises the
+Planner protocol with a supplied structured fixture; it does not perform reasoning.
 
 ## Try two independent terminals
 
@@ -101,6 +103,8 @@ current incarnation atomically. Heartbeat updates only last-seen. Disconnect and
 handoff mark that exact session DISCONNECTED; handoff transfers no task/claim.
 Duplicate enrollment, capability changes, assignment acceptance, progress,
 blocker and result messages are not implemented here and terminate the connection.
+V3 Planner responses are accepted only for the exact selected bound session and
+pending correlated request. An agent cannot select itself or create a request.
 Malformed/unsupported messages fail in strict transport decoding before handling.
 Errors are categorical and do not echo credentials or raw payloads.
 
@@ -132,8 +136,9 @@ Cleanup compares the created socket's file identity and preserves replacement
 paths, reporting a cleanup error. The private parent directory is retained.
 
 Registry sessions persist through the existing locked atomic state writes;
-invitations and bindings do not. No Markdown ledger or scheduler state is edited
-by attachment. Normal EOF, connection failure, idle deadline and graceful shutdown
+invitations and transport routing do not. Phase 5 Planner selection/request
+records do persist in that same structured state, distinct from connection routing.
+Attachment edits no Markdown ledger or scheduler task/claim ownership. Normal EOF, connection failure, idle deadline and graceful shutdown
 attempt exact fenced disconnection. A registry cleanup failure stops the listener
 and reports an authority/storage error for investigation. No history is reset.
 
@@ -159,9 +164,12 @@ filesystems, arbitrary native code able to edit state, or stolen credential file
 It is local orchestration, not an OS/container sandbox. Filesystem locking is not
 distributed multi-host consensus. The listener exposes no TCP/public endpoint.
 
-No Phase 5 dynamic Planner selection/execution, Phase 6 enrolled-worker dispatch,
-heterogeneous enrolled task execution, remote/public networking, or automatic
-merge/deployment is implemented. Existing managed providers continue through their
+Phase 5 human selection and bound Planner exchange are implemented through
+`cmd/planner --enrolled-planner-socket`; the standalone listener console remains
+an admission/liveness tool. Phase 6 enrolled-worker dispatch, heterogeneous enrolled
+task execution, remote/public networking, and automatic merge/deployment are not
+implemented. Existing managed providers continue through their
 established adapters and guards. A compatible client may advertise PLANNER if
-invited, but that never makes it the Planner or a coordination authority. Human
+invited, but that never selects it as Planner or makes it a coordination authority.
+Only explicit human selection creates a Planner binding. Human
 authorization, final evidence review and merge/deployment authority remain intact.

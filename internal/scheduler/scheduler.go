@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
@@ -311,6 +312,17 @@ func Register(workspace string, plan objective.Plan, authority state.Objective) 
 				return errors.New("persisted objective differs; a new human decision is required")
 			}
 			return nil
+		}
+		if authority.PlannerEvidence != nil {
+			if strings.TrimSpace(authority.AuthorizedBy) == "" {
+				return errors.New("explicit human plan authorization required")
+			}
+			if err := s.CheckPlannerEvidence(*authority.PlannerEvidence, plan, time.Now().UTC()); err != nil {
+				return err
+			}
+			b := s.AgentRegistry.Planners[authority.PlannerEvidence.Correlation.RunID]
+			b.AdoptedObjective = plan.ID
+			s.AgentRegistry.Planners[b.RunID] = b
 		}
 		authority.ID = plan.ID
 		authority.Description = plan.Objective

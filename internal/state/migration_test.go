@@ -3,12 +3,14 @@ package state
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 )
 
 func writeFixture(t *testing.T, path string, snapshot Snapshot) []byte {
@@ -49,7 +51,7 @@ func TestV1MigrationPreservesOwnershipAndDoesNotEnrollAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Authority.Schema != 2 || after.Authority.Protocol != s.Authority.Protocol || after.Authority.Generation != s.Authority.Generation+1 || after.AgentRegistry != nil {
+	if after.Authority.Schema != SchemaVersion || after.Authority.Protocol != s.Authority.Protocol || after.Authority.Generation != s.Authority.Generation+1 || after.AgentRegistry != nil {
 		t.Fatal("incorrect migration/enrollment")
 	}
 	if !reflect.DeepEqual(s.Sessions, after.Sessions) || !reflect.DeepEqual(s.Claims, after.Claims) || !reflect.DeepEqual(s.Tasks, after.Tasks) {
@@ -107,6 +109,35 @@ func TestConcurrentV1MigrationRunsOnce(t *testing.T) {
 	}
 	if after.Authority.Generation != s.Authority.Generation+1 || len(after.Events) != len(s.Events)+1 {
 		t.Fatal("concurrent migration advanced authority more than once")
+	}
+}
+
+func TestV2MigrationPreservesRegistryAndAddsNoPlanner(t *testing.T) {
+	store, err := Open(t.TempDir(), "repo:test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Authority.Schema = 2
+	// Empty, valid Phase 2 registry is preserved, never silently reconstructed.
+	s.AgentRegistry = &AgentRegistryState{StaleAfterNS: time.Minute, ObservedAt: time.Now().UTC(), Sessions: map[agentprotocol.SessionID]AgentSession{}}
+	writeFixture(t, store.path, s)
+	reopened, err := Open(store.primary, "repo:test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := reopened.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Authority.Schema != SchemaVersion || !reflect.DeepEqual(after.AgentRegistry, s.AgentRegistry) || len(after.AgentRegistry.Planners) != 0 {
+		t.Fatal("migration changed enrollment or selected Planner")
+	}
+	if after.Authority.Generation != s.Authority.Generation+1 {
+		t.Fatal("migration not audited once")
 	}
 }
 
