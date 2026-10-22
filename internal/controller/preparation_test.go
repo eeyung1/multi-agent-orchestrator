@@ -197,3 +197,56 @@ func TestPreparationExecutablePolicyRejectsUntrustedPrograms(t *testing.T) {
 		})
 	}
 }
+
+func TestExplicitPreparationPolicyReauthorizationPreservesObjectiveState(t *testing.T) {
+	d, c := fixture(t)
+	p := admit(t, d, c, task("first"))
+	before, err := scheduler.Read(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeTask := before.Tasks[p.ID+"::first"]
+	oldDigest := before.Objectives[p.ID].PolicyDigest
+
+	c.WorktreePreparation = []execution.Command{preparationCommand("first; literal argument")}
+	if _, err := Run(context.Background(), d, p.ID, c); err == nil || !strings.Contains(err.Error(), "matching human authorization") {
+		t.Fatalf("changed policy ran without reauthorization: %v", err)
+	}
+	if err := ReauthorizePolicy(d, p.ID, c, "test human explicitly approved changed preparation policy"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := scheduler.Read(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterTask := after.Tasks[p.ID+"::first"]
+	if after.Objectives[p.ID].PolicyDigest == oldDigest || after.Objectives[p.ID].PolicyDigest != PolicyDigest(c) {
+		t.Fatal("policy digest was not reauthorized")
+	}
+	if beforeTask.Status != afterTask.Status || beforeTask.Attempt != afterTask.Attempt ||
+		beforeTask.AssignmentGeneration != afterTask.AssignmentGeneration || beforeTask.Token != afterTask.Token ||
+		beforeTask.SessionID != afterTask.SessionID || beforeTask.ResultID != afterTask.ResultID {
+		t.Fatalf("policy reauthorization changed task state: before=%+v after=%+v", beforeTask, afterTask)
+	}
+	found := false
+	for _, event := range after.Events {
+		if event.Operation == "reauthorize-objective-policy" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("policy reauthorization authority event missing")
+	}
+}
+
+func TestPreparationPolicyReauthorizationRejectsInstructionDrift(t *testing.T) {
+	d, c := fixture(t)
+	p := admit(t, d, c, task("first"))
+	c.WorktreePreparation = []execution.Command{preparationCommand("first; literal argument")}
+	if err := os.WriteFile(filepath.Join(d, "AGENTS.md"), []byte("Changed instructions\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReauthorizePolicy(d, p.ID, c, "test human"); err == nil || !strings.Contains(err.Error(), "instructions changed") {
+		t.Fatalf("instruction drift was reauthorized: %v", err)
+	}
+}

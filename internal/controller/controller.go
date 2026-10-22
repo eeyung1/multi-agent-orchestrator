@@ -123,6 +123,47 @@ func Admit(workspace string, plan objective.Plan, c Config, r recon.Report, huma
 	return scheduler.Register(primary, plan, state.Objective{PlanDigest: scheduler.PlanDigest(plan), PolicyDigest: digest(c), ReconDigest: r.InstructionDigest, AuthorizedBy: human, BaseSHA: r.Head, PlannerProvider: plannerID, WorkerProviders: workerIDs})
 }
 
+// PolicyDigest returns the deterministic digest fenced by objective admission.
+func PolicyDigest(c Config) string { return digest(c) }
+
+// ReauthorizePolicy permits an existing objective to continue under a changed
+// trusted execution policy only after explicit human authorization. It does not
+// change the plan, task state, ownership, results, or repository recon boundary.
+func ReauthorizePolicy(workspace, objectiveID string, c Config, human string) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if err := c.ValidateAdapters(workspace); err != nil {
+		return err
+	}
+	if strings.TrimSpace(human) == "" {
+		return errors.New("explicit human policy reauthorization is required")
+	}
+	if err := verifyAuthority(workspace); err != nil {
+		return err
+	}
+	primary, err := repository.Primary(workspace)
+	if err != nil {
+		return err
+	}
+	plan, authorized, err := scheduler.Restore(primary, objectiveID)
+	if err != nil {
+		return err
+	}
+	planDigest := scheduler.PlanDigest(plan)
+	if authorized.AuthorizedBy == "" || authorized.PlanDigest != planDigest {
+		return errors.New("saved objective plan lacks matching human authorization")
+	}
+	current, err := recon.Inspect(primary, plan.Objective)
+	if err != nil {
+		return err
+	}
+	if current.InstructionDigest != authorized.ReconDigest {
+		return errors.New("project instructions changed; policy reauthorization requires fresh human reconciliation")
+	}
+	return scheduler.ReauthorizePolicy(primary, objectiveID, planDigest, authorized.PolicyDigest, authorized.ReconDigest, digest(c), human)
+}
+
 func Run(ctx context.Context, workspace, objectiveID string, c Config) (Report, error) {
 	if err := c.Validate(); err != nil {
 		return Report{}, err
