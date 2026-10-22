@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/planning"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,30 +18,9 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
 )
 
-type File struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-type Existing struct {
-	ID           string `json:"id"`
-	Scope        string `json:"scope"`
-	Status       string `json:"status"`
-	HeadSHA      string `json:"head_sha,omitempty"`
-	ReviewStatus string `json:"review_status,omitempty"`
-}
-type Report struct {
-	Workspace         string     `json:"workspace"`
-	Head              string     `json:"head"`
-	Files             []string   `json:"files"`
-	Instructions      []File     `json:"instructions"`
-	CoordinationFiles []File     `json:"coordination_files"`
-	Context           []File     `json:"context"`
-	Existing          []Existing `json:"existing_tasks"`
-	ClaimedScopes     []string   `json:"claimed_scopes"`
-	DirtyPaths        []string   `json:"dirty_paths"`
-	Limitations       []string   `json:"limitations"`
-	InstructionDigest string     `json:"instruction_digest"`
-}
+type File = planning.File
+type Existing = planning.Existing
+type Report = planning.Report
 
 func Inspect(workspace, objective string) (Report, error) {
 	primary, err := repository.Primary(workspace)

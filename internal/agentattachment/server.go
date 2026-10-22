@@ -73,6 +73,8 @@ type Server struct {
 	pending  map[string]invitation
 	closed   bool
 	observed time.Time
+	routesMu sync.Mutex
+	routes   map[agentregistry.Ref]*plannerConnection
 }
 
 func New(registry *agentregistry.Registry, c Config) (*Server, error) {
@@ -87,7 +89,7 @@ func New(registry *agentregistry.Registry, c Config) (*Server, error) {
 	if c.WithTimeout == nil {
 		c.WithTimeout = context.WithTimeout
 	}
-	return &Server{registry: registry, c: c, pending: map[string]invitation{}}, nil
+	return &Server{registry: registry, c: c, pending: map[string]invitation{}, routes: map[agentregistry.Ref]*plannerConnection{}}, nil
 }
 
 func randomHex(size int) (string, error) {
@@ -219,7 +221,7 @@ func permitted[T comparable](have, allowed []T) bool {
 }
 
 func (s *Server) admit(ctx context.Context, e agentprotocol.Envelope) (agentregistry.Ref, error) {
-	if e.ValidateFrom(agentprotocol.FromAgent) != nil || e.ProtocolVersion != agentprotocol.Version2 || e.Type != agentprotocol.EnrollmentRequest || e.Invitation == nil {
+	if e.ValidateFrom(agentprotocol.FromAgent) != nil || e.ProtocolVersion == agentprotocol.Version1 || e.Type != agentprotocol.EnrollmentRequest || e.Invitation == nil {
 		return agentregistry.Ref{}, ErrAdmission
 	}
 	s.mu.Lock()
@@ -256,7 +258,7 @@ func (s *Server) admit(ctx context.Context, e agentprotocol.Envelope) (agentregi
 }
 
 func response(e agentprotocol.Envelope, ref agentregistry.Ref) agentprotocol.Envelope {
-	out := agentprotocol.Envelope{ProtocolVersion: agentprotocol.Version2, Type: agentprotocol.EnrollmentResponse, AgentID: e.AgentID, SessionID: e.SessionID,
+	out := agentprotocol.Envelope{ProtocolVersion: e.ProtocolVersion, Type: agentprotocol.EnrollmentResponse, AgentID: e.AgentID, SessionID: e.SessionID,
 		Enrollment: &agentprotocol.EnrollmentDecision{State: agentprotocol.EnrollmentAdmitted, SessionGeneration: uint64(ref.Generation)}}
 	if ref.Generation == 0 {
 		out.Enrollment = &agentprotocol.EnrollmentDecision{State: agentprotocol.EnrollmentRejected, Reason: "local admission denied"}
@@ -291,9 +293,15 @@ func (s *Server) Handle(ctx context.Context, t agenttransport.Transport) (result
 			result = errors.Join(result, ErrRegistry)
 		}
 	}()
+	connection := &plannerConnection{version: e.ProtocolVersion, transport: t, ready: make(chan struct{}), done: make(chan struct{})}
+	s.routesMu.Lock()
+	s.routes[ref] = connection
+	s.routesMu.Unlock()
+	defer func() { s.routesMu.Lock(); delete(s.routes, ref); close(connection.done); s.routesMu.Unlock() }()
 	if err := t.Send(handshake, response(e, ref)); err != nil {
 		return err
 	}
+	close(connection.ready) // Enrollment response must precede any Planner request.
 	cancel()
 	for {
 		if err := s.registry.Check(ref); err != nil {
@@ -318,16 +326,24 @@ func (s *Server) sessionMessage(ctx context.Context, t agenttransport.Transport,
 	if err != nil {
 		return err
 	}
-	if e.ValidateFrom(agentprotocol.FromAgent) != nil || e.ProtocolVersion != agentprotocol.Version2 || e.AgentID != ref.AgentID || e.SessionID != ref.SessionID {
+	if e.ValidateFrom(agentprotocol.FromAgent) != nil || e.ProtocolVersion == agentprotocol.Version1 || e.AgentID != ref.AgentID || e.SessionID != ref.SessionID {
 		return ErrBinding
 	}
 	if err := s.registry.Check(ref); err != nil {
+		return ErrBinding
+	}
+	s.routesMu.Lock()
+	connection := s.routes[ref]
+	s.routesMu.Unlock()
+	if connection == nil || connection.version != e.ProtocolVersion {
 		return ErrBinding
 	}
 	if e.Assignment != nil {
 		return ErrUnsupported
 	}
 	switch e.Type {
+	case agentprotocol.PlannerResponse:
+		return s.plannerResponse(ref, e)
 	case agentprotocol.Heartbeat:
 		if err := s.registry.Heartbeat(ref); err != nil {
 			return ErrBinding
@@ -339,7 +355,9 @@ func (s *Server) sessionMessage(ctx context.Context, t agenttransport.Transport,
 	default:
 		return ErrUnsupported
 	}
-	if err := t.Send(ctx, ack(ref, e.Type)); err != nil {
+	a := ack(ref, e.Type)
+	a.ProtocolVersion = e.ProtocolVersion
+	if err := t.Send(ctx, a); err != nil {
 		return err
 	}
 	if e.Type != agentprotocol.Heartbeat {

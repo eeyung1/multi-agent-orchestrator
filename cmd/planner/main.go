@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/controller"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
@@ -72,7 +73,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+func run(ctx context.Context, args []string, in io.Reader, out io.Writer) (result error) {
 	flags := flag.NewFlagSet("planner", flag.ContinueOnError)
 	flags.SetOutput(out)
 	workspace := flags.String("workspace", "", "target Git repository (asked if omitted)")
@@ -86,12 +87,18 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	workerIDs := flags.String("workers", "", "comma-separated built-in worker providers")
 	maxWorkers := flags.Int("max-workers", 0, "maximum concurrent workers (defaults to trusted policy)")
 	list := flags.Bool("list-providers", false, "list installed compatible adapters without running them")
+	enrolledSocket := flags.String("enrolled-planner-socket", "", "host private local attachment and explicitly select an enrolled Planner instead of a managed provider")
+	registryStale := flags.Duration("registry-stale-after", 90*time.Second, "registry liveness policy; must match on reopen")
+	planningTimeout := flags.Duration("planning-timeout", 5*time.Minute, "maximum enrolled Planner response duration")
 	configurePreparation := flags.Bool("configure-preparation", false, "explicitly update trusted worktree preparation policy")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if *enrolledSocket != "" && (plannerID != "" || *planningTimeout <= 0) {
+		return errors.New("choose either a managed Planner or enrolled Planner mode with positive timeout")
 	}
 	if *list {
 		listProviders(out, *workspace)
@@ -135,7 +142,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	if err != nil && !missingPolicy {
 		return fmt.Errorf("load trusted Planner configuration: %w", err)
 	}
-	if c.Planner.Program == "" && c.Planner.Endpoint == "" && len(available(primary, true)) == 0 {
+	if *enrolledSocket == "" && *resume == "" && c.Planner.Program == "" && c.Planner.Endpoint == "" && len(available(primary, true)) == 0 {
 		return fmt.Errorf("no compatible Planner CLI is installed on trusted PATH; install/authenticate Codex, Claude Code or Gemini CLI, or use --config for a custom provider")
 	}
 	fmt.Fprintf(out, "Repository detected: %s\n", primary)
@@ -211,9 +218,40 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if err != nil {
 			return err
 		}
+		if saved.PlannerEvidence != nil && plannerID != "" {
+			return errors.New("saved objective used an enrolled Planner; resume does not select a replacement Planner")
+		}
+		if saved.PlannerEvidence == nil && *enrolledSocket != "" {
+			return errors.New("saved objective used a managed Planner; choose enrolled mode for a new objective")
+		}
 	}
-	if err := activate(reader, out, primary, &c, plannerID, *workerIDs, saved); err != nil {
-		return err
+	var enrolled *planner.Enrolled
+	var proposer planner.Proposer
+	if *enrolledSocket != "" || saved.PlannerEvidence != nil {
+		c.Planner = planner.Provider{}
+		if len(saved.WorkerProviders) > 0 {
+			if *workerIDs != "" && !samePool(strings.Split(*workerIDs, ","), saved.WorkerProviders) {
+				return errors.New("saved objective worker pool differs")
+			}
+			*workerIDs = strings.Join(saved.WorkerProviders, ",")
+		}
+		if err := activateWorkers(reader, out, primary, &c, *workerIDs); err != nil {
+			return err
+		}
+		if objectiveID == "" {
+			selected, cleanup, err := selectEnrolled(ctx, reader, out, primary, *enrolledSocket, *registryStale, *planningTimeout)
+			if err != nil {
+				return err
+			}
+			defer func() { result = errors.Join(result, cleanup()) }()
+			enrolled = selected
+			proposer = enrolled
+		}
+	} else {
+		if err := activate(reader, out, primary, &c, plannerID, *workerIDs, saved); err != nil {
+			return err
+		}
+		proposer = c.Planner
 	}
 	if *maxWorkers < 0 {
 		return errors.New("max-workers must be positive")
@@ -271,7 +309,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		var proposal planner.Proposal
 		for turn := 0; turn < 4; turn++ {
-			proposal, err = c.Planner.Propose(ctx, planner.Request{Objective: text, Recon: r, Capabilities: c.Capabilities(), Validators: c.Checks(), AllowedScopes: c.AllowedScopes, RequiredValidators: c.RequiredValidators})
+			proposal, err = proposer.Propose(ctx, planner.Request{Objective: text, Recon: r, Capabilities: c.Capabilities(), Validators: c.Checks(), AllowedScopes: c.AllowedScopes, RequiredValidators: c.RequiredValidators})
 			if err != nil {
 				return err
 			}
@@ -316,7 +354,13 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if !yes {
 			return errors.New("plan execution was not authorized")
 		}
-		if err := controller.Admit(primary, proposal.Plan, c, r, "interactive user confirmed displayed objective plan and configured execution policy"); err != nil {
+		human := "interactive user confirmed displayed objective plan and configured execution policy"
+		if enrolled != nil {
+			err = controller.AdmitEnrolled(primary, proposal.Plan, c, r, human, enrolled.Evidence())
+		} else {
+			err = controller.Admit(primary, proposal.Plan, c, r, human)
+		}
+		if err != nil {
 			return err
 		}
 		objectiveID = proposal.Plan.ID

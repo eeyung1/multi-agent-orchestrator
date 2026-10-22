@@ -73,6 +73,15 @@ type WorkerContext struct {
 }
 
 func Admit(workspace string, plan objective.Plan, c Config, r recon.Report, human string) error {
+	return admitPlan(workspace, plan, c, r, human, nil)
+}
+
+// AdmitEnrolled preserves every existing policy/recon/human gate and adds an
+// atomic selected-session/response fence inside scheduler registration.
+func AdmitEnrolled(workspace string, plan objective.Plan, c Config, r recon.Report, human string, evidence state.PlannerEvidence) error {
+	return admitPlan(workspace, plan, c, r, human, &evidence)
+}
+func admitPlan(workspace string, plan objective.Plan, c Config, r recon.Report, human string, evidence *state.PlannerEvidence) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
@@ -120,7 +129,7 @@ func Admit(workspace string, plan objective.Plan, c Config, r recon.Report, huma
 		}
 	}
 	plannerID, workerIDs := c.ProviderSelection()
-	return scheduler.Register(primary, plan, state.Objective{PlanDigest: scheduler.PlanDigest(plan), PolicyDigest: digest(c), ReconDigest: r.InstructionDigest, AuthorizedBy: human, BaseSHA: r.Head, PlannerProvider: plannerID, WorkerProviders: workerIDs})
+	return scheduler.Register(primary, plan, state.Objective{PlannerEvidence: evidence, PlanDigest: scheduler.PlanDigest(plan), PolicyDigest: digest(c), ReconDigest: r.InstructionDigest, AuthorizedBy: human, BaseSHA: r.Head, PlannerProvider: plannerID, WorkerProviders: workerIDs})
 }
 
 // PolicyDigest returns the deterministic digest fenced by objective admission.

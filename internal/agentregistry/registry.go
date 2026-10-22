@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
@@ -74,10 +75,15 @@ func (v View) Ref() Ref {
 	return Ref{AgentID: v.Session.Identity.AgentID, SessionID: v.Session.Identity.SessionID, Generation: v.Session.Generation}
 }
 
-// Registry contains immutable configuration. Each operation rereads durable
-// state under the shared state lock. An injected clock must be safe to call from
+// Registry contains immutable configuration and serializes this handle's calls
+// before acquiring the shared filesystem lock. Concurrent local sessions cannot
+// exhaust that lock's contention deadline by competing with this same handle.
+// Each operation still rereads durable state under the shared authoritative lock;
+// the process-local mutex never replaces persistence or cross-process fencing.
+// An injected clock must be safe to call from
 // concurrent callers; nil selects time.Now. No background timers are started.
 type Registry struct {
+	mu     sync.Mutex
 	store  *state.Store
 	policy Policy
 	now    func() time.Time
@@ -150,6 +156,8 @@ func enrolled(s state.Snapshot) bool {
 // committed even when the requested action is subsequently fenced. A rejected
 // action itself never mutates state. Reads only write when expiration is due.
 func (r *Registry) transact(operation string, fn func(*state.AgentRegistryState, time.Time) (bool, error)) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var actionErr error
 	err := r.store.UpdateIf("ORCHESTRATOR", "agent-registry-"+operation, func(s *state.Snapshot) (bool, error) {
 		if !enrolled(*s) || s.AgentRegistry == nil {
@@ -175,12 +183,14 @@ func (r *Registry) transact(operation string, fn func(*state.AgentRegistryState,
 				expired = true
 			}
 		}
+		invalidated := invalidatePlanners(data)
 		changed, e := fn(data, now)
+		changed = invalidatePlanners(data) || changed
 		actionErr = e
-		if expired || changed {
+		if expired || invalidated || changed {
 			data.ObservedAt = now
 		}
-		return expired || changed, nil
+		return expired || invalidated || changed, nil
 	})
 	return errors.Join(err, actionErr)
 }

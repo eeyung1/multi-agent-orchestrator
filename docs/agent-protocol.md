@@ -1,4 +1,4 @@
-# Agent protocol, registry, transport and local attachment: Phases 1–4
+# Agent protocol, registry, transport and local attachment: Phases 1–5
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 defines the product goal and roadmap. Phase 1 implements only the provider-neutral
@@ -6,7 +6,7 @@ wire/domain model in `internal/agentprotocol`. Nothing in this package connects,
 enrolls, persists, schedules, supervises, or authenticates an agent.
 
 Phase 2 adds the authoritative internal Go registry in `internal/agentregistry`,
-persisted inside structured state schema 2. Existing managed CLI adapters, Planner
+persisted inside structured state (now schema 3). Existing managed CLI adapters, Planner
 configuration, `controller.WorkerContext` and their operational coordination
 lifecycle remain unchanged. Receiving WorkerContext does not enroll a subprocess
 in the registry. Phase 3 adds the separate `internal/agenttransport` library for
@@ -18,9 +18,9 @@ Phase 4 adds a separate local admission/session handler and Unix listener; see
 
 ## Version and identity
 
-`ProtocolVersion` accepts `orchestrator-agent/v1` and `orchestrator-agent/v2`.
-V1 retains its existing serialization/shape behavior; Phase 4 local attachment
-requires V2. Missing/unknown versions fail closed, without negotiation/downgrade.
+`ProtocolVersion` accepts `orchestrator-agent/v1`, `orchestrator-agent/v2`,
+and `orchestrator-agent/v3`. V1/V2 retain their existing wire behavior. Local
+attachment accepts V2 or V3; enrolled Planner interaction requires V3. Missing/unknown versions fail closed, without negotiation/downgrade.
 Future wire-shape changes require an explicitly supported version and compatibility
 tests; adding a provider name or capability does not require a new version.
 This namespace is separate from the existing `orchestrator/v1` structured-state
@@ -98,8 +98,9 @@ An assignment reference must match its session. `detail` and admission reasons
 are bounded single-line text without control characters or surrounding
 whitespace (64 KiB and 4 KiB respectively). A result detail is an untrusted
 summary, not a validation verdict. Handoff/disconnect describe requests/reports;
-they do not transfer or release claims. Full task, proposal, artifact and
-validation-evidence payload schemas are deliberately deferred.
+they do not transfer or release claims. Planner request/proposal payloads are
+defined in V3 below. Full worker task, artifact and validation-evidence payloads
+remain deferred.
 
 Use `Encode(envelope)` for validated deterministic JSON and
 `Decode(bytes, origin)` at a future receiving boundary. `Validate()` checks
@@ -208,10 +209,10 @@ claims, tasks or assignment history. This is checked on both reads and writes
 under the same state authority. Later adapter integration must deliberately bind
 these lifecycles without maintaining competing copies of the same fact.
 
-State schema 1 is migrated to schema 2 under the existing state lock. Migration
+State schemas 1 and 2 are migrated to schema 3 under the existing state lock. Migration
 preserves ownership/results/history and adds one audited authority revision; it
 does not enroll agents or create registry records. **Stop older controller
-binaries before upgrading.** Fresh older binaries reject schema 2, but already
+binaries before upgrading.** Fresh older binaries reject schema 3, but already
 running older writers cannot be retroactively upgraded. A missing registry with
 durable registry history is rejected rather than interpreted as an empty registry.
 Do not downgrade/edit state to retry. Existing provider configuration needs no
@@ -254,8 +255,9 @@ Every mutable session API requires AgentID, SessionID and the exact issued
 `session_generation` in `Ref`. `View.Ref()` provides this fence. Capabilities and
 roles use Phase 1 validation, including deterministic duplicate rejection and
 case-sensitive capability names. Provider names do not select roles. Multiple
-planning-capable sessions may be assigned the Planner responsibility here; Phase 5
-will enforce objective/session Planner selection centrally, with human approval.
+planning-capable sessions may advertise or be assigned Planner responsibility, but
+that alone does not create a planning binding. Phase 5 centrally enforces one
+human-selected active binding per planning run.
 
 ### Incarnation, supersession and ownership fencing
 
@@ -319,8 +321,9 @@ not been changed or presented as a cross-file transaction.
 ### What remains unimplemented
 
 Phase 4 now adds Unix-local attachment and a generic bridge example. There are
-no HTTP/RPC/stdio provider bridges, remote agents, same-session reconnect, dynamic Planner execution, or
-scheduler dispatch to enrolled heterogeneous workers. The local trusted console
+no HTTP/RPC/stdio provider bridges, remote agents, same-session reconnect, or
+scheduler dispatch to enrolled heterogeneous workers. Phase 5 adds local enrolled
+Planner selection and execution; see below. The local trusted console
 can list agents; there is no full connected-agent dashboard. Current
 Codex/Claude/Gemini subprocesses still use their established
 managed lifecycle and are not auto-enrolled. Phase 3 provides an internal transport
@@ -363,9 +366,10 @@ Only the attachment handler interprets invitations. The protocol/transport merel
 validate their shape and direction. Never log enrollment envelopes or invitation
 proofs. The secret is a local bearer credential, not vendor identity or a task
 claim. The handler keeps its own `agentregistry.Ref`, verifies every post-bind
-identity and current incarnation, and accepts only unassigned heartbeat and
-disconnect/handoff messages. Advertisements stay advertisements; enrollment assigns
-no Planner/Worker responsibility. Later-phase messages terminate the connection.
+identity and current incarnation, and accepts unassigned heartbeat and
+disconnect/handoff messages, plus V3 Planner responses for an explicitly selected
+session with a pending Go-issued request. Advertisements stay advertisements; enrollment assigns
+no Planner/Worker responsibility. Unsupported task-lifecycle messages terminate the connection.
 
 Heartbeat acknowledgment follows the durable last-seen update. Disconnect/handoff
 acknowledgment follows fenced durable disconnection; the client then closes the
@@ -378,3 +382,76 @@ stored in the existing registry. Upgrade all writers before admitting V2 session
 older binaries reject identities using unsupported protocol versions. Existing
 V1 models, provider configuration and managed workflow behavior remain supported
 by the upgraded binary. See [attachment operations and crash boundaries](agent-attachment.md).
+
+## Phase 5: V3 Planner session contract
+
+V3 preserves the V2 admission/lifecycle messages and adds two messages. V1/V2
+reject Planner message types and Planner field presence, including null values.
+No existing managed adapter must migrate its configuration.
+
+| Message | Origin | Required payload |
+| --- | --- | --- |
+| `planner_request` | Go | `planning_request: {correlation, request}` |
+| `planner_response` | Agent | `planning_response: {correlation, proposal}` |
+
+`correlation` contains `run_id`, `binding_id`, and `request_id`. Go generates the
+binding/request IDs using cryptographic randomness; the agent only echoes them.
+Identity remains in the envelope, not in provider names or connection addresses.
+No Planner message carries claims, assignment generations, role grants, enrollment
+credentials or registry incarnation choices. Strict nested decode/direction and
+1 MiB framing limits apply. Unknown authority/executable fields are rejected.
+
+The dependency-free `internal/planning` package defines the shared managed and
+enrolled data shapes; existing `planner.Request/Proposal`, `objective.Plan/Task`,
+and `recon.Report/File/Existing` names remain aliases. `request` includes the exact
+user objective; bounded recon (workspace, HEAD, inventory, instructions, context,
+existing tasks/claimed scopes, limitations and instruction digest); configured
+worker capabilities and validator names; allowed scopes and required validators.
+It is structured context, never executable shell prompts. Bridges must treat
+repository contents as untrusted, return proposals/questions only, preserve the
+user objective and use configured worker/check names. They cannot invent user
+approval, execution commands, coordination changes, merge or deployment.
+
+`proposal` is the existing `{plan: {id, objective, tasks}, questions}` contract.
+Tasks describe IDs/features, scopes, dependencies, description, priority,
+acceptance criteria, configured validation names and worker capability. Questions
+support the existing bounded clarification loop. Wire validation checks shape;
+Go objective admission still checks paths, scope, policy, conflicts, dependency
+ordering, recon drift and explicit human approval. Go replaces the suggested plan
+ID. Clarification responses are recorded as CLARIFICATION and cannot authorize
+an objective. Response receipt itself never admits tasks.
+
+Registry APIs `PlannerCandidates`, `SelectPlanner`, `BeginPlannerRequest`,
+`AcceptPlannerResponse`, `CheckPlanner` and `StopPlanner` use the existing locked
+state transaction. Supported roles remain advertisements; selection separately
+assigns PLANNER with human provenance. One active binding exists per run and a
+session cannot serve multiple active runs. Replacement requires the exact prior
+binding ID plus renewed human authorization; an outstanding request must first
+be stopped. Historical bindings are retained. These APIs are trusted Go actions,
+not agent socket operations. Same-handle registry calls queue under a local mutex
+before acquiring the existing filesystem lock, preventing local sessions from
+starving each other's lock-acquisition deadline. Independent handles/processes
+still reread and fence under that filesystem lock; the mutex is not authority.
+
+Requests move READY -> BUSY -> READY on valid completion; heartbeats continue
+independently. Only one request is pending per binding. Duplicate, unknown,
+previous-run, wrong-session/incarnation, identity-switched or superseded responses
+are rejected. Timeout/cancellation stops the binding and records failure. Registry
+expiry/disconnect/supersession or role/capability loss atomically invalidates the
+selection and pending request; new sessions inherit neither role nor selection.
+
+Completed evidence includes correlation and a deterministic digest over the
+entire proposed plan except its Go-replaced ID. `controller.AdmitEnrolled` keeps
+normal validation/human gates; `scheduler.Register` rechecks selection, liveness,
+exact completed request and plan digest under the same lock that adopts tasks.
+It records the adopted objective, preventing reuse for another objective. This
+is an adoption fence, not dispatch to enrolled workers.
+
+Schema 3 persists bindings, historical replacements, latest request status,
+digest and adoption evidence inside existing `state.json`; it stores no invitation
+secret or request/proposal content. Locked schema 1/2 migration preserves existing
+ownership/registry data, selects no Planner and adds one audited revision. Stop
+older writers before upgrading; older binaries reject schema 3. Corrupt or missing
+binding state with durable selection history fails closed. A process restart does
+not restore transports or revive a pending request: use fresh admission and human
+selection. See [enrolled Planner operation](enrolled-planner.md).

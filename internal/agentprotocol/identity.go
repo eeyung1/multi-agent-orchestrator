@@ -21,8 +21,11 @@ const Version1 ProtocolVersion = "orchestrator-agent/v1"
 // remains supported for existing models/adapters; it cannot use V2-only fields.
 const Version2 ProtocolVersion = "orchestrator-agent/v2"
 
+// Version3 adds correlated structured Planner requests/proposals.
+const Version3 ProtocolVersion = "orchestrator-agent/v3"
+
 func (v ProtocolVersion) Validate() error {
-	if v != Version1 && v != Version2 {
+	if v != Version1 && v != Version2 && v != Version3 {
 		return ErrUnsupportedVersion
 	}
 	return nil

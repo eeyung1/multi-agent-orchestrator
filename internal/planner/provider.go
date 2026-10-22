@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/planning"
 	"io"
 	"net/http"
 	"os"
@@ -16,23 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/providers"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/recon"
 )
 
-type Request struct {
-	Objective          string       `json:"objective"`
-	Recon              recon.Report `json:"recon"`
-	Capabilities       []string     `json:"capabilities"`
-	Validators         []string     `json:"validators"`
-	AllowedScopes      []string     `json:"allowed_scopes"`
-	RequiredValidators []string     `json:"required_validators,omitempty"`
-}
-type Proposal struct {
-	Plan      objective.Plan `json:"plan"`
-	Questions []string       `json:"questions,omitempty"`
-}
+type Request = planning.Request
+type Proposal = planning.Proposal
+
 type Proposer interface {
 	Propose(context.Context, Request) (Proposal, error)
 }

@@ -19,6 +19,8 @@ const (
 	Heartbeat              MessageType = "heartbeat"
 	Handoff                MessageType = "handoff"
 	Disconnect             MessageType = "disconnect"
+	PlannerRequest         MessageType = "planner_request"
+	PlannerResponse        MessageType = "planner_response"
 	SessionAcknowledgment  MessageType = "session_acknowledgment"
 )
 
@@ -73,19 +75,22 @@ type SessionAck struct {
 // identify the participant, including on messages sent by Go to that agent.
 // Identity is an advertisement; Role is explicit Go-issued responsibility;
 // Assignment is a scheduler reference; Detail is untrusted report/reason text.
-// Full task/proposal/artifact payload schemas remain future protocol work.
+// V3 adds typed reasoning requests/proposals. Worker task/artifact payloads
+// remain future protocol work; shape validation grants no execution authority.
 type Envelope struct {
-	ProtocolVersion ProtocolVersion     `json:"protocol_version"`
-	Type            MessageType         `json:"type"`
-	AgentID         AgentID             `json:"agent_id"`
-	SessionID       SessionID           `json:"session_id"`
-	Identity        *Identity           `json:"identity,omitempty"`
-	Enrollment      *EnrollmentDecision `json:"enrollment,omitempty"`
-	Role            Role                `json:"role,omitempty"`
-	Assignment      *AssignmentRef      `json:"assignment,omitempty"`
-	Detail          string              `json:"detail,omitempty"`
-	Invitation      *InvitationProof    `json:"invitation,omitempty"`
-	Acknowledgment  *SessionAck         `json:"acknowledgment,omitempty"`
+	ProtocolVersion  ProtocolVersion     `json:"protocol_version"`
+	Type             MessageType         `json:"type"`
+	AgentID          AgentID             `json:"agent_id"`
+	SessionID        SessionID           `json:"session_id"`
+	Identity         *Identity           `json:"identity,omitempty"`
+	Enrollment       *EnrollmentDecision `json:"enrollment,omitempty"`
+	Role             Role                `json:"role,omitempty"`
+	Assignment       *AssignmentRef      `json:"assignment,omitempty"`
+	Detail           string              `json:"detail,omitempty"`
+	Invitation       *InvitationProof    `json:"invitation,omitempty"`
+	PlanningRequest  *PlanningRequest    `json:"planning_request,omitempty"`
+	PlanningResponse *PlanningResponse   `json:"planning_response,omitempty"`
+	Acknowledgment   *SessionAck         `json:"acknowledgment,omitempty"`
 }
 
 func (e Envelope) Validate() error {
@@ -97,6 +102,26 @@ func (e Envelope) Validate() error {
 	}
 	if err := e.SessionID.Validate(); err != nil {
 		return err
+	}
+	if e.Type == PlannerRequest || e.Type == PlannerResponse {
+		if e.ProtocolVersion != Version3 {
+			return errors.New("Planner messages require v3")
+		}
+		if (e.PlanningRequest != nil) != (e.Type == PlannerRequest) || (e.PlanningResponse != nil) != (e.Type == PlannerResponse) {
+			return errors.New("invalid Planner payload")
+		}
+		if e.PlanningRequest != nil {
+			if err := e.PlanningRequest.Validate(); err != nil {
+				return err
+			}
+		}
+		if e.PlanningResponse != nil {
+			if err := e.PlanningResponse.Validate(); err != nil {
+				return err
+			}
+		}
+	} else if e.PlanningRequest != nil || e.PlanningResponse != nil {
+		return errors.New("unexpected Planner payload")
 	}
 	var identity, enrollment, role, assignment, optionalAssignment, detail, requiredDetail bool
 	switch e.Type {
@@ -116,15 +141,16 @@ func (e Envelope) Validate() error {
 		optionalAssignment = true
 	case Handoff, Disconnect:
 		optionalAssignment, detail = true, true
+	case PlannerRequest, PlannerResponse:
 	case SessionAcknowledgment:
-		if e.ProtocolVersion != Version2 || e.Acknowledgment == nil {
+		if e.ProtocolVersion == Version1 || e.Acknowledgment == nil {
 			return errors.New("session acknowledgment requires v2")
 		}
 	default:
 		return ErrUnsupportedMessageType
 	}
 	if e.Invitation != nil {
-		if e.ProtocolVersion != Version2 || e.Type != EnrollmentRequest {
+		if e.ProtocolVersion == Version1 || e.Type != EnrollmentRequest {
 			return errors.New("invitation is only permitted in v2 enrollment request")
 		}
 		if err := e.Invitation.Validate(); err != nil {
@@ -154,7 +180,7 @@ func (e Envelope) Validate() error {
 	if enrollment {
 		if e.ProtocolVersion == Version1 && e.Enrollment.SessionGeneration != 0 ||
 			e.Enrollment.State != EnrollmentAdmitted && e.Enrollment.SessionGeneration != 0 ||
-			e.ProtocolVersion == Version2 && e.Enrollment.State == EnrollmentAdmitted && e.Enrollment.SessionGeneration == 0 {
+			e.ProtocolVersion != Version1 && e.Enrollment.State == EnrollmentAdmitted && e.Enrollment.SessionGeneration == 0 {
 			return errors.New("invalid enrollment session generation")
 		}
 		if err := e.Enrollment.State.Validate(); err != nil {
@@ -205,7 +231,7 @@ func (e Envelope) ValidateFrom(origin Origin) error {
 	}
 	want := FromAgent
 	switch e.Type {
-	case EnrollmentResponse, RoleAssignment, Assignment, SessionAcknowledgment:
+	case EnrollmentResponse, RoleAssignment, Assignment, SessionAcknowledgment, PlannerRequest:
 		want = FromOrchestrator
 	}
 	if origin != want {

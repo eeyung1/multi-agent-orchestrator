@@ -3,29 +3,15 @@ package objective
 import (
 	"errors"
 	"fmt"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/planning"
 	"sort"
 	"strings"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
-type Task struct {
-	ID                 string   `json:"id"`
-	Feature            string   `json:"feature"`
-	Scope              string   `json:"scope"`
-	DependsOn          []string `json:"depends_on,omitempty"`
-	Priority           int      `json:"priority,omitempty"`
-	Description        string   `json:"description,omitempty"`
-	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty"`
-	Validation         []string `json:"validation,omitempty"`
-	Capability         string   `json:"capability,omitempty"`
-}
-
-type Plan struct {
-	ID        string `json:"id"`
-	Objective string `json:"objective"`
-	Tasks     []Task `json:"tasks"`
-}
+type Task = planning.Task
+type Plan = planning.Plan
 
 func Validate(primary string, plan Plan) error {
 	if strings.TrimSpace(plan.ID) == "" || strings.TrimSpace(plan.Objective) == "" {

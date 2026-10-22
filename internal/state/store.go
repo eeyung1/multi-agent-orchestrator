@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	SchemaVersion   = 2
+	SchemaVersion   = 3
 	ProtocolVersion = "orchestrator/v1"
 	stateFile       = "state.json"
 	lockDir         = ".orchestrator-state-lock"
@@ -46,16 +46,17 @@ type Claim struct {
 }
 
 type Objective struct {
-	ID              string   `json:"id"`
-	Description     string   `json:"description"`
-	Status          string   `json:"status"`
-	PlanDigest      string   `json:"plan_digest,omitempty"`
-	PolicyDigest    string   `json:"policy_digest,omitempty"`
-	ReconDigest     string   `json:"recon_digest,omitempty"`
-	AuthorizedBy    string   `json:"authorized_by,omitempty"`
-	BaseSHA         string   `json:"base_sha,omitempty"`
-	PlannerProvider string   `json:"planner_provider,omitempty"`
-	WorkerProviders []string `json:"worker_providers,omitempty"`
+	ID              string           `json:"id"`
+	Description     string           `json:"description"`
+	Status          string           `json:"status"`
+	PlanDigest      string           `json:"plan_digest,omitempty"`
+	PolicyDigest    string           `json:"policy_digest,omitempty"`
+	ReconDigest     string           `json:"recon_digest,omitempty"`
+	AuthorizedBy    string           `json:"authorized_by,omitempty"`
+	BaseSHA         string           `json:"base_sha,omitempty"`
+	PlannerEvidence *PlannerEvidence `json:"planner_evidence,omitempty"`
+	PlannerProvider string           `json:"planner_provider,omitempty"`
+	WorkerProviders []string         `json:"worker_providers,omitempty"`
 }
 
 type AssignmentHistory struct {
@@ -188,8 +189,8 @@ func Open(primary, repositoryID string) (*Store, error) {
 	if snap.Authority.RepositoryID != repositoryID {
 		return nil, fmt.Errorf("state belongs to different repository: %s", snap.Authority.RepositoryID)
 	}
-	if snap.Authority.Schema == 1 {
-		if err := s.migrateV1(repositoryID); err != nil {
+	if snap.Authority.Schema < SchemaVersion {
+		if err := s.migrateLegacy(repositoryID); err != nil {
 			return nil, err
 		}
 	}
@@ -200,7 +201,7 @@ func (s *Store) Read() (Snapshot, error) {
 	return s.read(false)
 }
 
-func (s *Store) read(allowV1 bool) (Snapshot, error) {
+func (s *Store) read(allowLegacy bool) (Snapshot, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return Snapshot{}, err
@@ -215,7 +216,7 @@ func (s *Store) read(allowV1 bool) (Snapshot, error) {
 	if s.repositoryID != "" && snap.Authority.RepositoryID != s.repositoryID {
 		return Snapshot{}, errors.New("state belongs to different repository")
 	}
-	if snap.Authority.Protocol != ProtocolVersion || (snap.Authority.Schema != SchemaVersion && !(allowV1 && snap.Authority.Schema == 1)) {
+	if snap.Authority.Protocol != ProtocolVersion || (snap.Authority.Schema != SchemaVersion && !(allowLegacy && (snap.Authority.Schema == 1 || snap.Authority.Schema == 2))) {
 		return Snapshot{}, errors.New("unsupported state schema/protocol")
 	}
 	if err := snap.validateAgentRegistry(); err != nil {
@@ -323,7 +324,7 @@ func (s *Store) write(snap Snapshot) error {
 	return dir.Sync()
 }
 
-func (s *Store) migrateV1(repositoryID string) error {
+func (s *Store) migrateLegacy(repositoryID string) error {
 	return s.withLock(func() error {
 		snap, err := s.read(true)
 		if err != nil {
