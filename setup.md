@@ -90,6 +90,320 @@ Before live acceptance, ensure CLI authentication, Git author identity, meaningf
 project validators and acknowledged ORCHESTRATOR enrollment. Legacy ownership is
 reconciled explicitly. The automated tests use fake agents, not live paid calls.
 
+## Connecting the Planner and Worker Agents
+
+Here, “connect an agent” means configure a supported provider adapter and let the
+Planner runtime invoke it. It does **not** mean attach an arbitrary chat or an
+agent process that is already running elsewhere.
+
+### Roles and authority
+
+| Participant | What it does |
+| --- | --- |
+| Human | Chooses the objective, authorizes the plan and sensitive policy/recovery decisions, reviews evidence, and controls merge/deployment. |
+| Planner | Discusses the objective, reasons over repository recon, proposes bounded tasks, and presents consolidated results through the supported Planner runtime. |
+| Go ORCHESTRATOR | Sole coordination authority: admits objectives, assigns tasks, owns claims/generations, allocates worktrees, admits and supervises execution, runs validators, records authoritative results, and controls recovery state. Human recovery authorization is still required. |
+| Worker | Receives one bounded assignment in its assigned worktree/scope and returns implementation or blocker information. It cannot acquire arbitrary work, grant itself authority, authorize recovery, merge, or deploy. |
+
+```mermaid
+flowchart TD
+    U[Human] --> P[Planner: selected AI provider]
+    P -->|Proposal; human approval required| O[Go ORCHESTRATOR: sole authority]
+    O --> A[Worker A: task and isolated worktree A]
+    O --> B[Worker B: task and isolated worktree B]
+    O --> C[Worker C: task and isolated worktree C]
+```
+
+The Go `cmd/planner` program provides the terminal interface and calls the Go
+controller internally. There is no separate ORCHESTRATOR server to start or
+network connection to configure for this workflow. The model supplies proposals;
+it does not grant ownership, admit execution, validate results, or authorize
+recovery. Workers receive assignments from Go and return through its supervised
+execution path, rather than coordinating ownership directly with the Planner.
+
+You manually install/authenticate providers, choose roles and limits, configure
+real project checks/preparation, and authorize the plan. After authorization,
+Go automatically acquires eligible tasks, allocates worktrees, launches and
+supervises workers, validates output, and collects evidence. Reviewing the
+results and integrating them remain your responsibility.
+
+### Select the Planner provider
+
+From the orchestrator checkout, run:
+
+```bash
+go run ./cmd/planner --workspace ~/Projects/my-project
+```
+
+The runtime discovers supported CLIs on trusted absolute PATH entries and offers
+interactive Planner and worker-pool choices. The built-ins are `codex` (Codex),
+`claude` (Claude Code), and `gemini` (Gemini CLI); all three support both roles.
+Discovery checks executable availability without launching the CLI, checking its
+version, authenticating, or making a model request. Project-local executables,
+relative PATH entries and symlinks into projects are excluded. To inspect the
+available choices without starting an objective:
+
+```bash
+go run ./cmd/planner --list-providers
+```
+
+Select interactively or pass `--planner codex`, `--planner claude`, or
+`--planner gemini`. `Planner activated: Codex` means the Codex adapter and its
+executable have been selected and resolved. It does not prove authentication or
+attach your current Codex conversation. After Go gathers bounded recon and you
+authorize sending it, the runtime launches a new provider invocation to request
+a proposal. It may ask bounded clarification questions; this is not an imported
+chat session. The final consolidated report comes from Go's recorded evidence.
+
+Built-in selections are recorded with the admitted objective and restored when
+you resume it. They are not a promise that every new objective will use the same
+choices. Policy saving during first-run setup saves the authorized policy; do
+not rely on it to save a global Planner/worker selection. Changing a saved
+objective's provider/pool requires new authorization and is not a way to bypass
+its existing policy checks.
+
+There is no built-in `--model` selector. Built-in invocations use the model
+selected by that CLI's applicable settings/defaults, not an existing chat's
+context. A trusted custom planning CLI or configured chat-completion endpoint
+can select other providers/models through the
+[advanced configuration](#configure-custom-providers-and-policy). Those are
+planning adapters, not a way for arbitrary processes to register themselves.
+
+### Enable worker providers
+
+Install and authenticate each desired CLI under the user/environment that will
+run Planner. Authentication belongs to that provider's CLI; keep credentials
+out of `state.json`, `agentmeeting.md`, and the other coordination ledgers.
+ORCHESTRATOR does not install providers or log you in.
+
+For example, select Claude for planning and enable Codex and Gemini workers:
+
+```bash
+go run ./cmd/planner --workspace ~/Projects/my-project --planner claude --workers codex,gemini --max-workers 3
+```
+
+For a trusted personal config, the equivalent role/concurrency **fragment** is:
+
+```json
+{
+  "planner": {"adapter": "claude"},
+  "workers": {
+    "codex": {"adapter": "codex"},
+    "gemini": {"adapter": "gemini"}
+  },
+  "max_workers": 3
+}
+```
+
+Merge this fragment with your real authorized validation/preparation policy; it
+is not a complete standalone policy. Use `--config /absolute/path/planner.json`
+to select a trusted config. Built-in worker keys must match their adapter IDs;
+their executable/argument vectors are defined in Go and cannot be overridden by
+model output. A requested unavailable provider fails with an error rather than
+silently installing or substituting another one. Discovery can succeed while
+authentication or CLI compatibility later fails during invocation.
+
+Each proposed task selects a `capability` from the configured worker keys. Check
+the displayed `worker=...` for each task before approving the plan. Installing
+Gemini alone does not make it an eligible worker: include `gemini` in the pool
+or trusted `workers` config. Enabling two providers does not guarantee tasks
+will be evenly divided between them; the approved task capability determines
+which adapter Go invokes.
+
+Custom workers use the existing `program`/`args` configuration and must implement
+the worker protocol described in the advanced section. An HTTP planning endpoint
+does not supply an HTTP worker adapter automatically. Do not point a custom
+worker at an arbitrary interactive command and assume it can consume an
+assignment.
+
+### Parallel assignments and max_workers
+
+`"max_workers": 3`, or `--max-workers 3`, permits up to three eligible assignments
+to execute concurrently. The default is three; the supported range is 1–16.
+Each slot covers preparation, worker execution, validation, and collection. It
+is a concurrency limit, not a count of already-running agents to attach.
+
+| Independent task | Managed worker process | Isolated branch | Isolated worktree |
+| --- | --- | --- | --- |
+| Task A | Agent A | Branch A | Worktree A |
+| Task B | Agent B | Branch B | Worktree B |
+| Task C | Agent C | Branch C | Worktree C |
+
+These are illustrative names; Go generates the actual assignment identities and
+paths. Three workers do not share one editable checkout or own the same files.
+One configured provider can supply all three processes: use
+`--workers codex --max-workers 3`, not repeated `codex` entries in the pool.
+
+Dependencies, scope conflicts/claims, unavailable prerequisite results, or fewer
+eligible tasks reduce actual concurrency. Independent overlapping scopes are
+not admitted as parallel work. Adding providers or increasing the limit cannot
+make dependent tasks independent. Existing assigned work is not blindly
+relaunched after a restart.
+
+### From provider selection to reviewed results
+
+1. Clone/configure the orchestrator and keep the target Git project separate.
+2. Install and authenticate the provider CLIs you want to use.
+3. Start Planner with `--workspace` pointing to the target project.
+4. Select the Planner provider and worker pool; authorize enrollment and trusted
+   validation/preparation policy when required.
+5. Go gathers bounded repository recon. With your transmission approval, the
+   Planner provider reasons over it and proposes tasks.
+6. Review and explicitly authorize the objective/task plan, including each scope,
+   dependency, worker capability, acceptance criterion, and check.
+7. Go ORCHESTRATOR admits and records the authoritative objective/tasks.
+8. The scheduler finds eligible pending tasks whose prerequisites permit work.
+9. For each task, Go uses its approved capability to select the configured worker
+   adapter; it does not ask a model to invent an executable.
+10. Go acquires ownership and binds the assignment to its isolated branch/worktree,
+    session, claim token, and generation.
+11. After any authorized worktree preparation, Go launches a worker subprocess
+    inside that worktree with bounded `WorkerContext` JSON on stdin. It contains
+    the task/scope, assignment identity, instructions, and prerequisite evidence.
+12. Other eligible independent assignments can run concurrently up to `max_workers`.
+13. Go supervises execution with guards, timeouts and heartbeats. Built-in workers
+    leave edits for Go's ownership checks and local feature-branch commit.
+14. Go checks the committed, clean, scoped output and runs the configured trusted
+    validators against that exact HEAD.
+15. Go records validation evidence/results in durable coordination/structured state.
+    A blocker is preserved for authorized recovery, not silently treated as success.
+16. The Planner terminal presents the consolidated report from those results.
+17. You inspect evidence and record approval, request changes, or leave review open.
+18. Integration, merge and deployment remain separate human-controlled actions.
+
+### Supported provider-to-role examples
+
+All of these combinations use current built-in adapters, provided the named
+CLIs are installed and authenticated:
+
+| Planner | Enabled worker providers | Selection flags |
+| --- | --- | --- |
+| Codex | Codex | `--planner codex --workers codex` |
+| Claude Code | Codex + Gemini CLI | `--planner claude --workers codex,gemini` |
+| Gemini CLI | Claude Code + Codex | `--planner gemini --workers claude,codex` |
+
+Append the flags to `go run ./cmd/planner --workspace ~/Projects/my-project`,
+with `--max-workers 3` if desired. For mixed pools, review which capability each
+proposed task actually uses. No provider/model gains ORCHESTRATOR authority
+because it is selected as Planner.
+
+### Independently running agents versus managed agents
+
+- An **independent chat/process** has its own conversation and lifecycle. It does
+  not join a managed objective just because it is open in the same project.
+- A **configured provider CLI** is an available executable/adapter that Go is
+  authorized to invoke. Selecting it does not attach to an existing process.
+- A **managed worker** is a new subprocess Go launches for an admitted assignment,
+  with its worktree, bounded context, guards and recorded execution evidence.
+
+Arbitrary existing live processes cannot currently attach as Planner or workers
+to this managed workflow, import their chat histories, or join an objective
+after starting independently. The lower-level manual activation/session commands
+are a separate interface; registering a session there does not attach that
+process to `cmd/planner` scheduling or supervision.
+
+To run several agents, configure the provider pool, set `max_workers`, and approve
+a plan with independent bounded tasks. Let Go launch them. Do not open several
+independent chats in the same checkout and manually copy claims or tokens to
+simulate managed workers. Users normally do not need to manage session IDs,
+tokens, generations, or worktree internals themselves.
+
+### Troubleshoot agent connections
+
+Check only the providers you intend to use, from the same environment as Planner:
+
+```bash
+which codex
+codex --version
+which claude
+claude --version
+which gemini
+gemini --version
+go run ./cmd/planner --list-providers
+```
+
+The version commands are manual diagnostics, not discovery actions performed by
+ORCHESTRATOR. Finding a binary or printing its version does not establish that
+it is authenticated. Complete authentication using the provider's own CLI setup.
+
+| Symptom | What to check/do |
+| --- | --- |
+| Executable not found or excluded | Install the CLI on a trusted absolute PATH outside the target/orchestrator projects; inspect `--list-providers`. Do not bypass trust checks with a project-local wrapper. |
+| Provider starts but authentication/permissions/flags fail | Check that CLI's login, version and supported execution environment under the same user. The runtime does not bypass permission or sandbox failures. |
+| Installed provider is not used as a worker | Include its ID in `--workers` or the trusted `workers` map, and inspect each proposed task's capability. |
+| Only one assignment runs | Check for `max_workers = 1`, dependencies, overlapping scope/claims, or only one eligible task. A larger pool alone does not create parallel tasks. |
+| No eligible tasks | Inspect task status, prerequisite results and blockers in the consolidated report. Completed/assigned tasks are not new pending work; divergent prerequisite branches can require human integration. |
+| Policy/recon requires authorization | Review the reported policy or instruction change and follow the explicit authorization flow. Do not edit recorded digests or silently remove checks. |
+| Task is BLOCKED | Review the blocker/preserved branch and follow [BLOCKED recovery](#recover-a-blocked-planner-assignment). Do not edit ledgers or delete claims/worktrees to retry. |
+
+### First real parallel-agent run
+
+Use a new disposable project with Git author identity configured. The example
+uses Go's standard library so local package installation is unnecessary. These
+commands create the demo; run them yourself in a new directory:
+
+```bash
+mkdir -p ~/Projects/agent-demo
+cd ~/Projects/agent-demo
+git init -b main
+go mod init example.org/agent-demo
+printf '# Agent connection demo\n' > README.md
+git add go.mod README.md
+git commit -m "Seed agent demo"
+cd ~/Projects/multi-agent-orchestrator
+go run ./cmd/planner --workspace ~/Projects/agent-demo --planner codex --workers codex --max-workers 3
+```
+
+Install/authenticate Codex first, or substitute another supported built-in for
+both role flags. Authorize enrollment and meaningful Go-test/diff-check policy
+when prompted. This standard-library example needs no worktree preparation.
+Describe an objective such as:
+
+> Create three independent Go packages, with one task per directory and no
+> dependencies between tasks: `alpha/` implements and tests `Add(a, b int) int`;
+> `beta/` implements and tests `Reverse(s string) string` for Unicode strings;
+> `gamma/` implements and tests `IsEven(n int) bool`. Each task owns only its
+> package directory. Leave the root README and go.mod unchanged. Use the codex
+> worker capability for all three tasks and run the authorized Go tests and diff
+> check for each result. Leave all results for my review; do not merge or deploy.
+
+Review the proposal before authorization: it should contain three disjoint
+scopes and no dependency edges. If it does not, answer no and restart with a
+clarified objective; rejecting the plan ends that invocation rather than opening
+an interactive replanning loop. Selecting one provider is intentional: three
+separate Codex worker processes can demonstrate concurrency without requiring
+three accounts or three different providers. For a mixed-provider test, enable
+the other IDs and request/review the corresponding capabilities instead.
+
+Watch these signals; wording beyond the quoted messages is not a live-event API:
+
+| Stage | What you can observe |
+| --- | --- |
+| Planner selected | `Planner activated: Codex` confirms adapter selection, not a successful model call. |
+| Worker enabled | With the explicit pool above, `Worker capability enabled: codex (Codex)` confirms availability to the plan, not a running worker. |
+| Plan approval | Proposed tasks show `scope=`, `dependencies=`, `checks=`, and `worker=`; the runtime asks `Authorize this plan and its configured worker/validation commands? [y/N]`. |
+| Scheduling | `ORCHESTRATOR is scheduling eligible work and collecting evidence. Existing assignments will not be relaunched.` marks entry to managed execution. |
+| Acquisition/worktrees | Read-only inspection of `multi-agent-orchestrator/state.json` shows assignment status and branch/worktree identities; `git -C ~/Projects/agent-demo worktree list` lists created worktrees. |
+| Concurrent execution | Independent tasks may have concurrent assignments; use an OS process monitor to observe actual overlapping worker processes. Multiple preserved worktrees alone do not prove simultaneous execution. |
+| Supervision/validation | `agentmeeting.md` contains operational status/heartbeats; `resolution.md` contains execution evidence. The final report records checks, exact HEADs and blockers. |
+| Final review | Successful collection reaches `AWAITING_REVIEW` and the human review prompt. Inspect the branches/evidence before approving. Approval does not merge them. |
+
+There is no built-in per-worker live launch/progress dashboard. The terminal may
+remain quiet while children execute; use the read-only evidence above rather
+than assuming a missing live message means no work started. Do not edit those
+files. Real model calls can incur provider charges, and tasks can finish too
+quickly to observe overlap. This demo is live acceptance, unlike the automated
+regression suite's fake providers.
+
+### Current connection limits
+
+This is local orchestration, not an OS/container sandbox; its filesystem locks
+are not distributed multi-host locks. Provider executables remain trusted local
+programs. There is no arbitrary live-agent attachment, worker self-authorization,
+or automatic merge/deployment. The Planner is the reasoning interface and Go
+remains the sole coordination authority. The human retains final review and
+integration authority, including explicit recovery authorization.
+
 ## Advanced / Custom Providers
 
 This section is optional for HTTP providers, custom CLI adapters or handwritten

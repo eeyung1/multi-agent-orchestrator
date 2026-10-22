@@ -27,6 +27,10 @@ go run ./cmd/planner --list-providers
 go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers codex,gemini --max-workers 3
 ```
 
+See [Connecting the Planner and Worker Agents](setup.md#connecting-the-planner-and-worker-agents)
+for provider configuration, managed process launch, parallel tasks, and a first
+multi-agent run. Existing independent chats/processes cannot attach to this workflow.
+
 Detection inspects trusted absolute PATH entries without running agents or
 checking authentication. Project-local executables and relative PATH entries
 are excluded. Built-in argument vectors are defined in Go; model output cannot
