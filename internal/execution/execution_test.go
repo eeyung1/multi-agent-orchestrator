@@ -1,11 +1,14 @@
 package execution
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 )
 
 func setup(t *testing.T) (string, string) {
@@ -26,6 +29,77 @@ func setup(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	return root, wt
+}
+
+func TestAfterExitCleanupPrecedesFailureBlock(t *testing.T) {
+	root, wt := setup(t)
+	called := false
+	result, err := Run(Request{
+		Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "false"},
+		AfterExit: func(result Result) error {
+			called = true
+			if result.ExitCode == 0 {
+				t.Fatal("failing validator was presented as PASS to cleanup")
+			}
+			if err := coordination.VerifyExecution(root, "a1", wt); err != nil {
+				return err
+			}
+			_, err := Run(Request{Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "touch", Args: []string{"cleanup-ran"}}})
+			return err
+		},
+	})
+	if !called || err == nil || result.ExitCode == 0 {
+		t.Fatalf("cleanup suppressed validator failure: %+v %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "cleanup-ran")); err != nil {
+		t.Fatal("supervised cleanup was unable to run before BLOCKED")
+	}
+	if status, err := coordination.SessionStatus(root, "a1"); err != nil || status != "BLOCKED" {
+		t.Fatalf("failed validator did not block: %s %v", status, err)
+	}
+}
+
+func TestAfterExitFailureRejectsSuccess(t *testing.T) {
+	root, wt := setup(t)
+	cleanupErr := errors.New("fixture cleanup failed")
+	result, err := Run(Request{Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "true"}, AfterExit: func(Result) error { return cleanupErr }})
+	if !errors.Is(err, cleanupErr) || result.ExitCode == 0 {
+		t.Fatalf("cleanup failure was accepted: %+v %v", result, err)
+	}
+	if status, err := coordination.SessionStatus(root, "a1"); err != nil || status != "BLOCKED" {
+		t.Fatalf("cleanup failure did not block: %s %v", status, err)
+	}
+}
+
+func TestAfterExitFailureSurvivesTimeout(t *testing.T) {
+	root, wt := setup(t)
+	cleanupErr := errors.New("fixture boundary integrity failed")
+	_, err := Run(Request{
+		Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "true"}, Timeout: time.Nanosecond,
+		AfterExit: func(Result) error { return cleanupErr },
+	})
+	if !errors.Is(err, cleanupErr) || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("timeout concealed boundary failure: %v", err)
+	}
+}
+
+func TestAfterExitNotInvokedAfterGuardLoss(t *testing.T) {
+	root, wt := setup(t)
+	calls, cleanupCalled := 0, false
+	_, err := Run(Request{
+		Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "true"},
+		Guard: func() error {
+			calls++
+			if calls > 1 {
+				return errors.New("fixture generation changed")
+			}
+			return nil
+		},
+		AfterExit: func(Result) error { cleanupCalled = true; return nil },
+	})
+	if err == nil || cleanupCalled {
+		t.Fatalf("cleanup ran after assignment guard loss: %v", err)
+	}
 }
 
 func TestRunExecutesInsideWorktree(t *testing.T) {

@@ -3,6 +3,7 @@ package execution
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,10 @@ type Request struct {
 	Input                        string
 	RedactArguments              bool
 	Environment                  []string
+	// AfterExit runs after the child/process group has exited and ownership has
+	// been rechecked, before a failed command transitions the session to BLOCKED.
+	// It may perform guarded cleanup; its failure cannot turn a command into PASS.
+	AfterExit func(Result) error
 }
 type Result struct {
 	ExitCode int
@@ -121,14 +126,32 @@ finished:
 		if ee, ok := runErr.(*exec.ExitError); ok {
 			exitCode = ee.ExitCode()
 		}
+	}
+	if req.AfterExit != nil {
+		if err := req.AfterExit(Result{ExitCode: exitCode, Output: output}); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("after-exit cleanup/check: %w", err))
+			if exitCode == 0 {
+				exitCode = -1
+			}
+		}
+		if req.Guard != nil {
+			if err := req.Guard(); err != nil {
+				return Result{ExitCode: exitCode, Output: output}, errors.Join(runErr, fmt.Errorf("stale result rejected after cleanup: %w", err))
+			}
+		}
+		if err := coordination.VerifyExecution(req.Primary, req.SessionID, req.Worktree); err != nil {
+			return Result{ExitCode: exitCode, Output: output}, errors.Join(runErr, fmt.Errorf("execution ownership rejected after cleanup: %w", err))
+		}
+	}
+	if runErr != nil {
 		if err := coordination.Transition(req.Primary, req.SessionID, "BLOCKED"); err != nil {
-			return Result{ExitCode: exitCode, Output: output}, fmt.Errorf("agent execution failed and blocking session failed: %w", err)
+			return Result{ExitCode: exitCode, Output: output}, errors.Join(runErr, fmt.Errorf("agent execution failed and blocking session failed: %w", err))
 		}
 		if err := appendExecution(req, exitCode, output); err != nil {
-			return Result{ExitCode: exitCode, Output: output}, err
+			return Result{ExitCode: exitCode, Output: output}, errors.Join(runErr, err)
 		}
 		if ctx.Err() == context.DeadlineExceeded {
-			return Result{ExitCode: exitCode, Output: output}, fmt.Errorf("agent execution timed out")
+			return Result{ExitCode: exitCode, Output: output}, fmt.Errorf("agent execution timed out: %w", runErr)
 		}
 		return Result{ExitCode: exitCode, Output: output}, fmt.Errorf("agent execution failed: %w", runErr)
 	}

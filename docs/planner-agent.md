@@ -186,6 +186,31 @@ clean, descend from its assigned base and change only owned paths. Evidence is
 bound to the exact validated HEAD, and all session claims are released through
 the existing completion operation.
 
+Managed validation establishes a strict clean, committed, owned output boundary
+before any validator starts and captures its exact HEAD and assigned branch.
+After every trusted validator, the controller verifies that HEAD, branch, Git
+worktree identity and assignment ownership still match. Validators may generate
+filesystem artifacts, including tracked reports outside the worker's scope.
+Their intermediate files remain available to subsequent checks. After the last
+check or first failing check, guarded supervised Git operations restore explicit
+index/tracked paths to the captured HEAD and remove only new file/directory paths
+absent from the boundary's inventory. Literal path arguments prevent wildcard or
+option interpretation. Existing ignored dependencies are inventoried and retained;
+changes to their contents are not backed up or reverted. New ignored outputs are
+removed along with other new paths. Cleanup is recorded concisely in result
+evidence, or in the blocker if validation failed after generating artifacts.
+
+A validator failure remains a failure after successful cleanup. A HEAD/branch
+change is preserved for inspection without any history reset. Ownership loss,
+cleanup errors, nested Git repositories and sparse/missing tracked paths fail
+closed; boundary integrity failures never launch automatic worker repairs.
+Cleanup cannot bypass the final strict `CheckOutput`, exact-head evidence binding,
+or human review gate. Cancellation may prevent cleanup from completing. The
+inventory includes ignored directories and adds filesystem traversal cost for
+large dependency trees. This boundary assumes the assigned writer has stopped;
+it does not provide containment against detached processes or concurrent
+unrestricted filesystem writers.
+
 A dependent assignment can branch from a collected prerequisite HEAD that
 contains all of its prerequisites. Divergent prerequisite heads require a human
 integration decision. The Planner never combines them by automatically merging.
@@ -214,7 +239,7 @@ action. All collected results produce AWAITING_REVIEW. Only explicit human input
 records APPROVED/CHANGES_REQUESTED; those decisions do not merge or deploy.
 
 This release does not automatically push branches, create product PRs, obtain
-credentials, recover unknown writers, perform destructive cleanup, migrate
+credentials, recover unknown writers, perform arbitrary worktree cleanup, migrate
 competing authorities or provide multi-host coordination. Each task currently
 has one bounded directory/file scope. Recon is bounded, excludes common secret
 files and dependencies, and cannot guarantee that every sensitive file has been
