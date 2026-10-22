@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/locking"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/locking"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/strictjson"
 )
 
 const (
-	SchemaVersion   = 1
+	SchemaVersion   = 2
 	ProtocolVersion = "orchestrator/v1"
 	stateFile       = "state.json"
 	lockDir         = ".orchestrator-state-lock"
@@ -68,28 +70,28 @@ type AssignmentHistory struct {
 }
 
 type Task struct {
-	ID                   string   `json:"id"`
-	ObjectiveID          string   `json:"objective_id"`
-	Feature              string   `json:"feature"`
-	Scope                string   `json:"scope"`
-	DependsOn            []string `json:"depends_on,omitempty"`
-	Priority             int      `json:"priority,omitempty"`
-	Status               string   `json:"status"`
-	Attempt              uint64   `json:"attempt"`
-	AssignmentGeneration uint64   `json:"assignment_generation"`
-	Token                string   `json:"token,omitempty"`
-	SessionID            string   `json:"session_id,omitempty"`
-	ResultID             string   `json:"result_id,omitempty"`
-	Description          string   `json:"description,omitempty"`
-	AcceptanceCriteria   []string `json:"acceptance_criteria,omitempty"`
-	Validation           []string `json:"validation,omitempty"`
-	Capability           string   `json:"capability,omitempty"`
-	Branch               string   `json:"branch,omitempty"`
-	Worktree             string   `json:"worktree,omitempty"`
-	BaseSHA              string   `json:"base_sha,omitempty"`
-	Blocker              string   `json:"blocker,omitempty"`
-	ValidatedHead        string   `json:"validated_head,omitempty"`
-	ValidationEvidence   string   `json:"validation_evidence,omitempty"`
+	ID                   string              `json:"id"`
+	ObjectiveID          string              `json:"objective_id"`
+	Feature              string              `json:"feature"`
+	Scope                string              `json:"scope"`
+	DependsOn            []string            `json:"depends_on,omitempty"`
+	Priority             int                 `json:"priority,omitempty"`
+	Status               string              `json:"status"`
+	Attempt              uint64              `json:"attempt"`
+	AssignmentGeneration uint64              `json:"assignment_generation"`
+	Token                string              `json:"token,omitempty"`
+	SessionID            string              `json:"session_id,omitempty"`
+	ResultID             string              `json:"result_id,omitempty"`
+	Description          string              `json:"description,omitempty"`
+	AcceptanceCriteria   []string            `json:"acceptance_criteria,omitempty"`
+	Validation           []string            `json:"validation,omitempty"`
+	Capability           string              `json:"capability,omitempty"`
+	Branch               string              `json:"branch,omitempty"`
+	Worktree             string              `json:"worktree,omitempty"`
+	BaseSHA              string              `json:"base_sha,omitempty"`
+	Blocker              string              `json:"blocker,omitempty"`
+	ValidatedHead        string              `json:"validated_head,omitempty"`
+	ValidationEvidence   string              `json:"validation_evidence,omitempty"`
 	AssignmentHistory    []AssignmentHistory `json:"assignment_history,omitempty"`
 }
 
@@ -126,20 +128,22 @@ type Event struct {
 }
 
 type Snapshot struct {
-	Authority  Authority               `json:"authority"`
-	Sessions   map[string]Session      `json:"sessions"`
-	Claims     map[string]Claim        `json:"claims"`
-	Objectives map[string]Objective    `json:"objectives"`
-	Tasks      map[string]Task         `json:"tasks"`
-	Results    map[string]ResultRecord `json:"results"`
-	Reviews    map[string]Review       `json:"reviews"`
-	Events     []Event                 `json:"events"`
+	Authority     Authority               `json:"authority"`
+	Sessions      map[string]Session      `json:"sessions"`
+	Claims        map[string]Claim        `json:"claims"`
+	Objectives    map[string]Objective    `json:"objectives"`
+	Tasks         map[string]Task         `json:"tasks"`
+	Results       map[string]ResultRecord `json:"results"`
+	Reviews       map[string]Review       `json:"reviews"`
+	Events        []Event                 `json:"events"`
+	AgentRegistry *AgentRegistryState     `json:"agent_registry,omitempty"`
 }
 
 type Store struct {
-	primary string
-	dir     string
-	path    string
+	primary      string
+	repositoryID string
+	dir          string
+	path         string
 }
 
 func Open(primary, repositoryID string) (*Store, error) {
@@ -154,7 +158,7 @@ func Open(primary, repositoryID string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	s := &Store{primary: primary, dir: dir, path: filepath.Join(dir, stateFile)}
+	s := &Store{primary: primary, repositoryID: repositoryID, dir: dir, path: filepath.Join(dir, stateFile)}
 	if _, err := os.Stat(s.path); errors.Is(err, os.ErrNotExist) {
 		legacy, detail, legacyErr := legacyOperationalState(dir)
 		if legacyErr != nil {
@@ -177,30 +181,45 @@ func Open(primary, repositoryID string) (*Store, error) {
 			return nil, err
 		}
 	}
-	snap, err := s.Read()
+	snap, err := s.read(true)
 	if err != nil {
 		return nil, err
 	}
 	if snap.Authority.RepositoryID != repositoryID {
 		return nil, fmt.Errorf("state belongs to different repository: %s", snap.Authority.RepositoryID)
 	}
-	if snap.Authority.Schema != SchemaVersion || snap.Authority.Protocol != ProtocolVersion {
-		return nil, fmt.Errorf("unsupported state schema/protocol: %d/%s", snap.Authority.Schema, snap.Authority.Protocol)
+	if snap.Authority.Schema == 1 {
+		if err := s.migrateV1(repositoryID); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
 
 func (s *Store) Read() (Snapshot, error) {
+	return s.read(false)
+}
+
+func (s *Store) read(allowV1 bool) (Snapshot, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	var snap Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := strictjson.Decode(data, &snap); err != nil {
 		return Snapshot{}, fmt.Errorf("decode orchestrator state: %w", err)
 	}
 	if snap.Sessions == nil || snap.Claims == nil {
 		return Snapshot{}, errors.New("malformed orchestrator state: missing maps")
+	}
+	if s.repositoryID != "" && snap.Authority.RepositoryID != s.repositoryID {
+		return Snapshot{}, errors.New("state belongs to different repository")
+	}
+	if snap.Authority.Protocol != ProtocolVersion || (snap.Authority.Schema != SchemaVersion && !(allowV1 && snap.Authority.Schema == 1)) {
+		return Snapshot{}, errors.New("unsupported state schema/protocol")
+	}
+	if err := snap.validateAgentRegistry(); err != nil {
+		return Snapshot{}, err
 	}
 	if snap.Objectives == nil {
 		snap.Objectives = map[string]Objective{}
@@ -218,6 +237,14 @@ func (s *Store) Read() (Snapshot, error) {
 }
 
 func (s *Store) Update(actor, operation string, fn func(*Snapshot) error) error {
+	return s.UpdateIf(actor, operation, func(snap *Snapshot) (bool, error) {
+		return true, fn(snap)
+	})
+}
+
+// UpdateIf reads and optionally publishes under the existing state lock. False
+// discards the callback's private snapshot without an event/revision/write.
+func (s *Store) UpdateIf(actor, operation string, fn func(*Snapshot) (bool, error)) error {
 	if strings.TrimSpace(actor) == "" || strings.TrimSpace(operation) == "" {
 		return errors.New("actor and operation are required")
 	}
@@ -227,8 +254,15 @@ func (s *Store) Update(actor, operation string, fn func(*Snapshot) error) error 
 			return err
 		}
 		before := snap.Authority.Generation
-		if err := fn(&snap); err != nil {
+		changed, err := fn(&snap)
+		if err != nil {
 			return err
+		}
+		if !changed {
+			return nil
+		}
+		if before == ^uint64(0) {
+			return errors.New("authority generation exhausted")
 		}
 		snap.Authority.Generation = before + 1
 		snap.Events = append(snap.Events, Event{
@@ -241,6 +275,15 @@ func (s *Store) Update(actor, operation string, fn func(*Snapshot) error) error 
 }
 
 func (s *Store) write(snap Snapshot) error {
+	if s.repositoryID != "" && snap.Authority.RepositoryID != s.repositoryID {
+		return errors.New("state belongs to different repository")
+	}
+	if snap.Authority.Schema != SchemaVersion || snap.Authority.Protocol != ProtocolVersion {
+		return errors.New("unsupported state schema/protocol")
+	}
+	if err := snap.validateAgentRegistry(); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return err
@@ -267,7 +310,41 @@ func (s *Store) write(snap Snapshot) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
+	// A post-rename failure means publication may have occurred. Surface it;
+	// callers must reread instead of assuming that a reported error rolled back.
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+func (s *Store) migrateV1(repositoryID string) error {
+	return s.withLock(func() error {
+		snap, err := s.read(true)
+		if err != nil {
+			return err
+		}
+		if snap.Authority.RepositoryID != repositoryID {
+			return errors.New("state belongs to different repository")
+		}
+		if snap.Authority.Schema == SchemaVersion {
+			return nil
+		}
+		if snap.Authority.Generation == ^uint64(0) {
+			return errors.New("authority generation exhausted")
+		}
+		snap.Authority.Schema = SchemaVersion
+		snap.Authority.Generation++
+		snap.Events = append(snap.Events, Event{ID: fmt.Sprintf("%d-state-schema-migration", snap.Authority.Generation),
+			Actor: "ORCHESTRATOR", Operation: "state-schema-migration", Generation: snap.Authority.Generation,
+			UTC: time.Now().UTC().Format(time.RFC3339)})
+		return s.write(snap)
+	})
 }
 
 func (s *Store) withLock(fn func() error) error {

@@ -24,17 +24,22 @@ gates, blocked-assignment recovery, configured provider adapters, and parallel
 eligible task scheduling.
 
 Repository authority enrollment and local session registration exist today. They
-are not yet a universal agent enrollment handshake, capability registry, or
-reconnect protocol. Built-in providers currently come from a closed registry;
+are separate from the new internal protocol-session registry; there is still no
+transport enrollment handshake or reconnect protocol. Built-in CLI adapters still
+use a closed catalog;
 trusted custom CLI adapters and HTTP planning configuration offer additional
 integration paths. Workers are primarily invoked as managed subprocesses. An
 approved task selects a configured capability; the scheduler does not yet match
 tasks against a dynamic registry of independently connected available agents.
 
-Phase 1 now supplies provider-neutral identity/envelope types and validation in
-`internal/agentprotocol`, with a [focused protocol contract](docs/agent-protocol.md).
-This is a library foundation, not live enrollment: existing managed adapters,
-worker context, configuration and persisted state remain unchanged.
+Phase 1 supplies provider-neutral identity/envelope types in `internal/agentprotocol`.
+Phase 2 adds `internal/agentregistry`: authoritative internal Go admission, session
+incarnation fencing, role decisions, deterministic liveness and eligibility queries,
+persisted in structured state schema 2 with a locked v1 migration. See the
+[focused protocol/registry contract](docs/agent-protocol.md). These are internal
+foundations, not external attachment. Existing managed adapters, worker context,
+configuration and dispatch remain unchanged and do not automatically enroll agents
+in this registry.
 
 ### Start the managed Planner workflow
 
@@ -104,7 +109,8 @@ acceptance remains necessary. See [Planner architecture and limitations](docs/pl
 ## Target architecture / in development
 
 This section defines the product architecture to build. It does not claim that
-the enrollment registry, external attachment, or all transports exist today.
+external attachment or all transports exist today. The internal registry described
+above is implemented; the complete cross-process lifecycle remains the target.
 A user must ultimately be able to make multiple compatible agents available,
 enroll/select one planning-capable agent as Planner, enroll others as Workers,
 run eligible independent assignments simultaneously, and receive consolidated
@@ -202,11 +208,12 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 
 ## Universal Agent Enrollment & Transport Protocol
 
-**Roadmap / in development.** Phase 1's wire/domain model is implemented; Phases
-2–8 remain future work. This milestone extends the existing control-plane
+**Roadmap / in development.** Phase 1's wire/domain model and Phase 2's internal
+registry/liveness foundation are implemented; Phases 3–8 remain future work. This
+milestone extends the existing control-plane
 foundations with dynamic agent admission and a common logical contract. The
-following lifecycle remains the target; the model alone does not provide an
-enrollment service, transport, registry, or new attach/enroll CLI commands.
+following complete lifecycle remains the target; the internal APIs do not provide
+a transport enrollment service or new attach/enroll CLI commands.
 
 ### Required enrollment lifecycle
 
@@ -277,15 +284,19 @@ is what this milestone develops.
 and session identities, informational provider/runtime metadata, extensible
 capabilities, explicit supported roles, admission-state vocabulary, strict JSON
 envelopes, and references to existing scheduler assignment identity. Shape and
-message-direction validation grant no authority. Runtime admission, registry,
-liveness and transport behavior remain later phases. See the
+message-direction validation grant no authority. Phase 2 supplies internal Go
+admission/registry/liveness; transport integration remains later work. See the
 [Phase 1 contract and boundaries](docs/agent-protocol.md).
 
 ### Phase 2 — Registry and liveness
 
-Build the authoritative Go agent registry with READY/BUSY/BLOCKED/DISCONNECTED
-lifecycle, heartbeats, reconnect/session fencing, and stale-agent detection.
-Liveness observations must not silently release ownership or authorize recovery.
+**Internal foundation implemented:** Go-owned enrolled sessions persist in the
+existing structured-state transaction with READY/BUSY/BLOCKED/DISCONNECTED state,
+explicit role decisions, fenced heartbeats, fresh-session supersession, and
+policy-based expiry/eligibility. Expiry disconnects the registry session without
+releasing claims or authorizing recovery. This is not transport reconnect,
+dynamic Planner execution, or scheduler dispatch to enrolled agents. See the
+[Phase 2 API and persistence boundaries](docs/agent-protocol.md#phase-2-authoritative-registry-and-liveness).
 
 ### Phase 3 — Transport abstraction
 
