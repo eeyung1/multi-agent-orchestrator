@@ -1,7 +1,37 @@
-# Planner Agent and Go Multi-Agent Orchestrator
+# Multi-Agent Orchestrator
 
-> **New user?** Start with [setup.md](setup.md). It covers installation, repository enrollment, legacy-authority reconciliation, multiple isolated agents, objective scheduling, result collection, and the human review gate from a clean machine.
+The product goal is a universal, agent-neutral orchestration system in which
+multiple heterogeneous AI coding agents can enroll simultaneously. Codex, Claude,
+Gemini, OpenCode, Kimi, Antigravity, and future compatible agents are examples of
+agent endpoints, not architectural dependencies. The final system must not depend
+on a fixed provider list: compatibility, capabilities and explicit enrollment
+determine participation; provider identity does not grant authority.
 
+**Currently implemented:** authoritative local Go orchestration with configured
+adapters and managed worker processes. **Target architecture / in development:**
+universal agent enrollment and a transport-neutral protocol, including independent
+agents requesting admission. Dynamic attachment is the gap this milestone is
+intended to close, not a permanent product limitation.
+
+> **New user?** Start with [setup.md](setup.md) for the currently implemented workflow: installation, repository enrollment, provider configuration, isolated agents, scheduling, recovery, and human review. See [Target architecture / in development](#target-architecture--in-development) and [Universal Agent Enrollment & Transport Protocol](#universal-agent-enrollment--transport-protocol) for the architecture being developed. These roadmap sections are requirements, not instructions for an already-implemented attach service.
+
+## Currently implemented
+
+The control-plane foundations already include Go authority, objective/task
+scheduling, exclusive claims, assignment generations, isolated branches/worktrees,
+supervised execution, heartbeats, validation, evidence/result collection, review
+gates, blocked-assignment recovery, configured provider adapters, and parallel
+eligible task scheduling.
+
+Repository authority enrollment and local session registration exist today. They
+are not yet a universal agent enrollment handshake, capability registry, or
+reconnect protocol. Built-in providers currently come from a closed registry;
+trusted custom CLI adapters and HTTP planning configuration offer additional
+integration paths. Workers are primarily invoked as managed subprocesses. An
+approved task selects a configured capability; the scheduler does not yet match
+tasks against a dynamic registry of independently connected available agents.
+
+### Start the managed Planner workflow
 
 Start the Planner, choose a repository, and describe the objective:
 
@@ -10,7 +40,7 @@ go run ./cmd/planner --workspace ~/Projects/my-project
 ```
 
 Install/authenticate at least one supported CLI: Codex, Claude Code, or Gemini CLI.
-The Planner lists compatible installed agents and lets you select a Planner and
+The Planner lists installed supported provider CLIs and lets you select a Planner and
 one or more worker providers. Selecting a built-in requires no provider JSON.
 On first run it asks you to authorize mandatory project validators and offers to
 save that policy, including an optional explicitly authorized worktree preparation
@@ -29,7 +59,9 @@ go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers
 
 See [Connecting the Planner and Worker Agents](setup.md#connecting-the-planner-and-worker-agents)
 for provider configuration, managed process launch, parallel tasks, and a first
-multi-agent run. Existing independent chats/processes cannot attach to this workflow.
+multi-agent run. Existing independent chats/processes cannot yet dynamically
+enroll/attach to this managed workflow; the enrollment milestone below addresses
+that missing capability.
 
 Detection inspects trusted absolute PATH entries without running agents or
 checking authentication. Project-local executables and relative PATH entries
@@ -64,15 +96,267 @@ human integration; the Planner does not merge them automatically.
 This remains local orchestration, not a sandbox. Live provider/multi-agent
 acceptance remains necessary. See [Planner architecture and limitations](docs/planner-agent.md).
 
+## Target architecture / in development
+
+This section defines the product architecture to build. It does not claim that
+the enrollment registry, external attachment, or all transports exist today.
+A user must ultimately be able to make multiple compatible agents available,
+enroll/select one planning-capable agent as Planner, enroll others as Workers,
+run eligible independent assignments simultaneously, and receive consolidated
+results through the Planner. Go remains the sole coordination authority and
+the human retains sensitive authorization and final review/merge/deployment.
+
+```text
+                         HUMAN
+                           |
+                           v
+                       PLANNER
+                    (any enrolled
+                    capable agent)
+                           |
+                           v
+                +---------------------+
+                |   GO ORCHESTRATOR   |
+                |   SOLE AUTHORITY    |
+                +----------+----------+
+                           |
+              +------------+------------+
+              |            |            |
+              v            v            v
+           WORKER A      WORKER B      WORKER C
+          any agent      any agent      any agent
+              |            |            |
+          Worktree A    Worktree B    Worktree C
+              |            |            |
+              +------ simultaneous -----+
+```
+
+Workers communicate assignments, progress and results with ORCHESTRATOR through
+the common contract. They do not coordinate ownership directly with the Planner.
+The Planner's position in this diagram never makes it the coordination authority.
+
+### Terminology
+
+| Term | Meaning |
+| --- | --- |
+| Agent | An enrolled execution/reasoning participant. |
+| Provider | The implementation, vendor or runtime behind an agent. |
+| Planner | A protocol role for reasoning, task proposals and presenting results. |
+| Worker | A protocol role for executing bounded assignments. |
+| ORCHESTRATOR | The authoritative Go control plane. |
+| Transport | The communication mechanism between agent and ORCHESTRATOR. |
+| Adapter | A translation layer for a provider/runtime. |
+| Enrollment | Authoritative admission of an agent session by Go ORCHESTRATOR. |
+
+Provider and role are separate concepts. Current CLI flags/legacy role labels
+are implementation interfaces, not the definition of the future role protocol.
+
+### Roles and authority
+
+| Participant | Responsibility and boundary |
+| --- | --- |
+| Human | Chooses/authorizes objectives; selects or approves the Planner where required; approves sensitive policy/recovery decisions; reviews final evidence; retains merge/deployment authority. |
+| Planner | Performs recon through the supported runtime, reasons about the objective, asks/handles clarifications, proposes task decomposition, and presents consolidated results/review information. It does not admit agents, schedule work, issue claims, or authorize execution/recovery. |
+| Go ORCHESTRATOR | Admits/enrolls agents; maintains authoritative agent/session state; assigns roles; owns objectives/tasks, scheduling and task ownership; issues/fences generations and claims/tokens; creates isolated branches/worktrees; controls execution admission and supervision; monitors heartbeats/liveness; handles disconnect/recovery/handoff; runs validation; records authoritative evidence/results; controls recovery state under required human authorization. |
+| Workers | Advertise capabilities, receive bounded assignments, operate only within assigned scope/worktree, and report progress/blockers/results. They cannot self-assign, override another claim, merge/deploy, or grant themselves authority. |
+
+### Planner selection is a role decision
+
+When several enrolled agents support planning, the user can select which one
+becomes Planner for an objective/session. These are **target examples**, not
+current built-in adapter or attachment instructions:
+
+| Run | Selected Planner | Enrolled Workers |
+| --- | --- | --- |
+| Example 1 | Kimi | OpenCode, Codex, Claude, Antigravity |
+| Example 2 | Codex | Kimi, Gemini |
+
+An enrolled capable agent can become Planner without changing Go coordination
+authority. Roles are protocol roles, never hard-coded provider identities.
+
+### Parallel assignment invariant
+
+```text
+ONE TASK -> ONE CURRENT OWNER -> ONE ASSIGNMENT GENERATION -> ONE CLAIM
+         -> ONE BRANCH -> ONE ISOLATED WORKTREE -> ONE BOUNDED SCOPE
+```
+
+Different independent tasks may execute simultaneously, for example:
+
+| Task | Worker agent | Branch | Worktree |
+| --- | --- | --- | --- |
+| Task A | OpenCode | Branch A | Worktree A |
+| Task B | Kimi | Branch B | Worktree B |
+| Task C | Codex | Branch C | Worktree C |
+
+All three may run simultaneously when dependencies permit, scopes do not
+conflict, worker capabilities match, and concurrency policy permits. Running
+concurrently never gives two agents write authority over the same bounded
+task/scope. Reassignment must fence the previous generation and preserve its
+history; an expired heartbeat or disconnect alone does not authorize takeover.
+
+## Universal Agent Enrollment & Transport Protocol
+
+**Roadmap / in development.** This milestone extends the existing control-plane
+foundations with dynamic agent admission and a common logical contract. The
+following lifecycle, messages and states are design requirements, not a claim
+that matching wire formats, endpoints or CLI commands have shipped.
+
+### Required enrollment lifecycle
+
+```text
+DISCOVER
+  -> ENROLL
+  -> REGISTER IDENTITY + CAPABILITIES
+  -> ASSIGN ROLE (PLANNER or WORKER)
+  -> READY / AVAILABLE
+  -> HEARTBEAT
+  -> ASSIGNMENT
+  -> EXECUTION
+  -> PROGRESS / BLOCKER / RESULT
+  -> VALIDATION
+  -> COMPLETE / HANDOFF / DISCONNECT
+```
+
+This is a logical lifecycle, not the current persisted state enum. Heartbeats
+continue while available and during execution; progress may repeat and blockers
+require explicit handling. Planner assignments produce proposals/review
+information rather than worker implementation authority. Agent acceptance and
+reported completion never replace Go admission, validation or result authority.
+
+### Transport-neutral contract
+
+ORCHESTRATOR must interact with agents through one logical contract rather than
+provider-specific lifecycle logic. An enrolled agent must communicate:
+
+| Contract element | Information/interaction |
+| --- | --- |
+| Protocol version | Version compatibility established during enrollment. |
+| Agent/session identity | Stable agent identity and the specific admitted session; reconnects must be fenced. |
+| Provider/runtime metadata | Implementation metadata, separate from authority and role. |
+| Capabilities and supported roles | Advertised abilities and whether Planner/Worker roles are supported; Go admits their use. |
+| Availability and liveness | Availability plus heartbeat/liveness information. |
+| Assignment acceptance | Acceptance of the exact Go-issued bounded assignment and generation. |
+| Progress and blocker | Updates tied to the authorized assignment/session. |
+| Result | Output/evidence references bound to the assignment for Go validation/collection. |
+| Disconnect/handoff state | Explicit lifecycle information subject to Go ownership/recovery rules. |
+
+Adapters may translate a provider CLI/API into this contract. They must not own
+scheduling, grant roles/claims, accept stale results, or bypass authorization and
+validation semantics. A provider name must not need to be added to scheduler
+logic before a compatible agent can participate.
+
+The transport must not define orchestration semantics. Potential mechanisms
+include a locally managed CLI subprocess, an independently started local agent
+process, IPC/local socket, stdio bridge, HTTP/RPC bridge, and future remote
+transport. **These are possible implementations, not a list of shipped
+transports.** Existing managed CLI invocation and HTTP planning requests are
+current adapter mechanisms, not a completed universal transport protocol. Future
+remote transport does not turn local filesystem locks into distributed consensus.
+
+### Dynamic enrollment end goal
+
+An agent should be able to start independently, discover/connect to ORCHESTRATOR,
+request enrollment, register identity/capabilities/supported roles, and become
+AVAILABLE after authoritative admission. No provider-specific scheduler change
+should be required. An available planning-capable agent can be selected as
+Planner under the required human authorization; available Workers receive only
+Go-issued assignments. Discovery, a capability advertisement, or a connection
+alone grants no permission. This missing dynamic enrollment/attachment capability
+is what this milestone develops.
+
+### Phase 1 — Protocol and identity
+
+Define protocol versioning, agent identity, session identity, capabilities,
+supported roles, and the enrollment state model. Separate runtime metadata from
+authority and define admission/compatibility checks.
+
+### Phase 2 — Registry and liveness
+
+Build the authoritative Go agent registry with READY/BUSY/BLOCKED/DISCONNECTED
+lifecycle, heartbeats, reconnect/session fencing, and stale-agent detection.
+Liveness observations must not silently release ownership or authorize recovery.
+
+### Phase 3 — Transport abstraction
+
+Define a common transport interface and preserve existing managed CLI adapters
+behind it. Transport/adapter code translates messages; Go retains all scheduling,
+ownership, admission and result-authority semantics.
+
+### Phase 4 — External/local attachment
+
+Allow independently started compatible local agents to connect through an
+explicit registration/enrollment handshake, advertise capabilities, and exchange
+assignment/result messages. Define disconnect/handoff behavior through the same
+authority contract; do not equate opening a connection with being enrolled.
+
+### Phase 5 — Planner enrollment/selection
+
+Let the user select any planning-capable enrolled agent for an objective/session.
+Supply recon/objective context through the protocol, handle clarifications and
+proposals, and present consolidated results. Keep the Planner non-authoritative
+and preserve human plan/policy/recovery authorization.
+
+### Phase 6 — Heterogeneous parallel workers
+
+Match eligible tasks to available enrolled worker capabilities. Support
+simultaneous independent assignments, per-agent liveness/progress, and generation
+fencing across disconnect/reconnect. Preserve the one-owner/claim/worktree/scope
+invariant and existing validation/evidence gates.
+
+### Phase 7 — Operational UX
+
+Expose connected agents, roles, capabilities, availability, current assignments,
+progress and blockers. Provide clear attach/enroll instructions and distinguish
+discovered, connected, admitted and available states without requiring manual
+coordination-ledger edits.
+
+### Phase 8 — Real-world acceptance
+
+Demonstrate one objective with one Planner and at least two different worker
+agent implementations. Acceptance must show simultaneous independent execution,
+separate isolated worktrees, validation/result collection, and human review,
+without manual coordination-state edits. Preserve evidence of actual overlap
+and exact validated results; unit tests or two sequential workers alone do not
+establish this milestone's acceptance.
+
+## Non-negotiable invariants
+
+These requirements govern the target protocol and its integration with existing
+controls; documenting them does not mean universal enrollment is implemented.
+
+1. Go ORCHESTRATOR is the sole coordination authority.
+2. Agent/provider identity never grants authority.
+3. Planner is the reasoning interface, not the scheduler or coordination authority.
+4. Workers cannot self-authorize.
+5. Silence never implies permission.
+6. One task has one current owner, assignment generation, claim, branch, isolated
+   worktree and bounded scope; previous attempts remain historical evidence.
+7. Parallelism occurs across independent bounded assignments.
+8. Stale/disconnected agents cannot complete newer generations.
+9. Provider-specific adapters cannot bypass the universal protocol.
+10. The human retains final merge/deployment authority.
+11. Local orchestration is not an OS/container security sandbox.
+12. Local filesystem locking is not distributed multi-host consensus.
+
 ## Advanced / Manual interfaces
 
 The sections below document lower-level Go operations and the legacy Python
 scratch generator. Normal onboarding uses the Planner above. The Python graph
 does not participate in managed ownership and now refuses writes into Git
 repositories/managed worktrees. Its scratch validation only checks artifact
-writing, not generated application correctness.
+writing, not generated application correctness. Historical milestone notes are
+retained below as implementation history; use the current-state and target
+sections above to assess today's functionality and the next milestone.
 
 ## Universal agent activation protocol
+
+This existing portable prompt/manual interface predates universal dynamic enrollment.
+Registering a local session is not attaching a live process to managed Planner
+scheduling. The prompt's generic authority language does not supersede Go as
+the sole authority in managed runs; workers must not directly edit ledgers or
+self-acquire managed tasks. The new enrollment protocol must preserve that
+boundary rather than treating prompt instructions as an admission handshake.
 
 `agent_activation_prompt.md` defines the portable coordination protocol for
 coding agents joining a project. The authority role is **ORCHESTRATOR**, never a
@@ -114,6 +398,10 @@ Coordination writes use a shared atomic lock and rewrite the live ledger through
 
 
 ## Setup
+
+The following Python setup/examples are for the **legacy scratch generator**,
+not the managed Go workflow or the universal enrollment milestone. They do not
+enroll live agents into Go scheduling and cannot write into managed Git projects.
 
 ```bash
 python3 -m venv .venv
@@ -197,6 +485,10 @@ One provider key can access multiple permitted models; change the model ID rathe
 For another hosted option, [OpenRouter offers free models with limited daily usage](https://openrouter.ai/pricing). Install the OpenAI integration and use the compatible-provider configuration below with OpenRouter's endpoint and a free model ID from its catalog. Local Ollama is another option when you have suitable hardware. Higher cloud quotas generally require waiting for resets or upgrading your plan.
 
 ## Configure models in `.env`
+
+These settings configure only the legacy Python scratch generator. Its model
+factory and role prefixes do not define the Go agent registry, protocol roles,
+or transport contract. For today's Go provider configuration, use [setup.md](setup.md).
 
 Edit `.env` in the repository root. If you already have one, update it directly; you do not need to copy `.env.example` again. Save your changes and start a new orchestrator run to use them.
 
@@ -438,9 +730,9 @@ likewise retains all its claims. Completion storage errors propagate through
 Go runtime execution and validation use structured executable/argument vectors rather than shell command strings. The orchestrator does not invoke `sh -c` for user-supplied commands; shell metacharacters in arguments are therefore not interpreted by the orchestrator. Use repeated `--agent-arg` and `--validate-arg` flags to preserve argument boundaries.
 
 
-## Current milestone status — 2026-10-20
+## Historical milestone status — 2026-10-20
 
-The core local Go orchestration milestone is **complete**. The runtime now covers the intended guarded lifecycle:
+The core local Go orchestration milestone was **completed** with this guarded lifecycle. This historical completion does not mean the Universal Agent Enrollment & Transport Protocol is complete:
 
 `activate → register → claim → isolated worktree → WORKING → execute → validate → resolution evidence → [COMPLETE + release all session claims]`
 
@@ -450,12 +742,12 @@ The repository CI runs both `go test ./...` and `python -m pytest -q`. The final
 
 ### Boundary of this milestone
 
-This milestone provides **local/shared-filesystem orchestration**, not a distributed multi-host lock service or OS/container security sandbox. A child process runs with the operating-system permissions of the orchestrator process, and the coordination lock is filesystem-local. Distributed coordination, stronger process/environment isolation, richer durable structured state, and provider-specific executor adapters are future enhancements rather than blockers for the completed local-runtime milestone.
+This milestone provided **local/shared-filesystem orchestration**, not a distributed multi-host lock service or OS/container security sandbox. A child process runs with the operating-system permissions of the orchestrator process, and the coordination lock is filesystem-local. Richer durable structured state and configured provider adapters were delivered in subsequent work described above. Distributed coordination and stronger process/environment isolation remain separate from the completed local-runtime milestone and from transport-neutral agent enrollment.
 
 
 ## Single-authority orchestration foundation
 
-The next local-runtime milestone establishes **ORCHESTRATOR as the sole managed
+This subsequent local-runtime milestone established **ORCHESTRATOR as the sole managed
 coordination authority for an enrolled project**, while the user remains the
 final integration/merge authority. Repository instructions continue to govern
 build/test/project conventions, but conflicting ownership protocols must be
@@ -473,10 +765,13 @@ the prior lost-update window between registration and claim rewrites. Markdown
 remains readable history/projection during migration; it is not a source from
 which workers may grant themselves permission.
 
-This is the Phase A/Phase B foundation only. Objective scheduling, automatic
-worker spawning, supervision/recovery, legacy third-party adapters, result/PR
-publication, distributed locking, and OS/container confinement remain later
-gates. See [docs/single-authority-orchestration.md](docs/single-authority-orchestration.md).
+This section records the historical Phase A/Phase B foundation. Objective
+scheduling, managed worker spawning, supervision, blocked recovery and result
+collection were implemented subsequently. Universal agent enrollment remains
+the new milestone; arbitrary third-party adapters, product PR publication,
+distributed locking and OS/container confinement are not implied by the
+foundation. See the historical design in
+[docs/single-authority-orchestration.md](docs/single-authority-orchestration.md).
 
 
 ## Authority enrollment preflight
@@ -503,9 +798,9 @@ go run ./cmd/orchestrator \
 ```
 
 Enrollment provenance is persisted in structured authority state. Repositories
-with unresolved findings cannot be falsely enrolled as native. Compatibility
-adapters and authorized legacy migration remain explicit later work; until
-reconciled, managed execution fails closed.
+with unresolved findings cannot be falsely enrolled as native. The legacy
+reconciliation/migration path described below followed this native preflight
+foundation; unsupported writers and unresolved authority still fail closed.
 
 
 ## Guarded execution and supervision
@@ -538,11 +833,10 @@ one, then delegates the selected task through the normal enrolled start/worktree
 lifecycle. `--completed-tasks a,b` supplies validated prerequisite task IDs for this
 foundation.
 
-This phase is an acquisition foundation, not yet a persistent autonomous scheduler:
-objective/task completion is not yet stored transactionally in structured state, and
-parallel controllers can still race between eligibility inspection and the existing
-claim operation. Durable objective state and atomic acquire-next transactions are the
-next hardening step before claiming unattended multi-worker scheduling.
+This paragraph describes the original acquisition foundation: it did not yet
+persist objective/task completion or atomically reserve eligible tasks across
+controllers. The durable scheduler described next superseded that limitation;
+it is not a missing capability of the current managed workflow.
 
 
 ### Durable objective scheduler
