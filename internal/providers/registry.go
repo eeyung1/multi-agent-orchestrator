@@ -77,6 +77,15 @@ func ResolveExecutable(name, workspace string) (string, error) {
 	return "", fmt.Errorf("%s was not found on a trusted absolute PATH entry (project-local executables are excluded)", name)
 }
 
+// ResolveTrustedExecutable accepts a trusted policy's executable name or an
+// absolute path saved by interactive setup, with the same exclusions as discovery.
+func ResolveTrustedExecutable(program, workspace string) (string, error) {
+	if filepath.IsAbs(program) {
+		return trustedPath(program, workspace)
+	}
+	return ResolveExecutable(program, workspace)
+}
+
 func ValidateBinding(id, path, workspace string) error {
 	d, err := Resolve(id, workspace)
 	if err != nil {

@@ -53,6 +53,15 @@ func TestDecisionsAndAuthorityFields(t *testing.T) {
 			t.Fatalf("accepted authority/invalid response %s", data)
 		}
 	}
+	for _, data := range []string{
+		`{"worktree_preparation":[{"Program":"install","Args":[]}]}`,
+		`{"plan":{"worktree_preparation":[{"Program":"install","Args":[]}]}}`,
+		`{"plan":{"tasks":[{"id":"a","worktree_preparation":[{"Program":"install","Args":[]}]}]}}`,
+	} {
+		if _, err := Decode([]byte(data)); err == nil {
+			t.Fatalf("model defined executable preparation policy: %s", data)
+		}
+	}
 }
 
 func TestNativeCodexProposalUsesFinalFileAndReadOnlyPolicy(t *testing.T) {

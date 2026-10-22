@@ -95,18 +95,77 @@ func TestBootstrapNeverDropsValidationAndSavesPolicyOnly(t *testing.T) {
 	if err := bootstrap(bufio.NewReader(strings.NewReader("1\nno\n")), &out, project, path, &c); err == nil {
 		t.Fatal("unapproved checks admitted")
 	}
-	if err := bootstrap(bufio.NewReader(strings.NewReader("1\nyes\nyes\n")), &out, project, path, &c); err != nil {
+	if err := bootstrap(bufio.NewReader(strings.NewReader("1\nyes\nno\nyes\n")), &out, project, path, &c); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := controller.ReadConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.RequiredValidators) != 2 || len(loaded.Workers) != 0 || loaded.Planner.Program != "" {
+	if len(loaded.RequiredValidators) != 2 || len(loaded.Workers) != 0 || loaded.Planner.Program != "" || len(loaded.WorktreePreparation) != 0 {
 		t.Fatalf("bootstrap saved provider ownership/config instead of policy: %+v", loaded)
 	}
 	if err := loaded.ValidatePolicy(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBootstrapSavesOnlyExplicitlyAuthorizedPreparation(t *testing.T) {
+	project := t.TempDir()
+	bin := t.TempDir()
+	program := filepath.Join(bin, "prepare-fixture")
+	marker := filepath.Join(bin, "executed")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	path := filepath.Join(t.TempDir(), "policy.json")
+	var c controller.Config
+	var out bytes.Buffer
+	input := "custom\ngit\n[\"diff\",\"--check\"]\nyes\nyes\nprepare-fixture\n[\"--directory\",\"frontend\",\"install;literal\"]\nyes\nyes\n"
+	if err := bootstrap(bufio.NewReader(strings.NewReader(input)), &out, project, path, &c); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := controller.ReadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.WorktreePreparation) != 1 || loaded.WorktreePreparation[0].Program != program || strings.Join(loaded.WorktreePreparation[0].Args, "|") != "--directory|frontend|install;literal" || len(loaded.RequiredValidators) != 2 {
+		t.Fatalf("authorized preparation/validation did not survive saving: %+v", loaded)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("interactive setup executed preparation")
+	}
+	if !strings.Contains(out.String(), "Authorize this exact worktree preparation command and arguments?") {
+		t.Fatal("missing explicit preparation authorization")
+	}
+}
+
+func TestPreparationSetupRequiresExactCommandAuthorization(t *testing.T) {
+	for _, input := range []string{
+		"yes\ngit\n[]\nno\n",
+		"yes\ngit\n[]\n",
+		"yes\ngit\nnull\n",
+		"yes\ngit\n\"diff --check\"\n",
+		"yes\ngit diff --check\n[]\nyes\n",
+	} {
+		var c controller.Config
+		var out bytes.Buffer
+		if err := preparationPolicy(bufio.NewReader(strings.NewReader(input)), &out, t.TempDir(), &c); err == nil {
+			t.Fatalf("accepted unauthorized or invalid preparation: %q", input)
+		}
+		if len(c.WorktreePreparation) != 0 {
+			t.Fatal("unauthorized preparation added to trusted policy")
+		}
+	}
+	var c controller.Config
+	var out bytes.Buffer
+	if err := preparationPolicy(bufio.NewReader(strings.NewReader("no\n")), &out, t.TempDir(), &c); err != nil || len(c.WorktreePreparation) != 0 {
+		t.Fatalf("optional preparation was required: %+v %v", c, err)
+	}
+	// A deliberately empty argv is valid for a trusted executable.
+	if err := preparationPolicy(bufio.NewReader(strings.NewReader("yes\ngit\n[]\nyes\n")), &out, t.TempDir(), &c); err != nil || len(c.WorktreePreparation) != 1 {
+		t.Fatalf("explicit empty arguments rejected: %+v %v", c, err)
 	}
 }
 

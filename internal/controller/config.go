@@ -31,6 +31,9 @@ type Config struct {
 	TimeoutSeconds     int                          `json:"timeout_seconds"`
 	HeartbeatSeconds   int                          `json:"heartbeat_seconds"`
 	RepairAttempts     int                          `json:"repair_attempts"`
+
+	// WorktreePreparation is trusted human policy, never part of a model proposal.
+	WorktreePreparation []execution.Command `json:"worktree_preparation,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -135,6 +138,11 @@ func (c *Config) ValidatePolicy() error {
 			return fmt.Errorf("required validator is not configured: %s", name)
 		}
 	}
+	for i, command := range c.WorktreePreparation {
+		if _, err := providers.ResolveTrustedExecutable(command.Program, ""); err != nil {
+			return fmt.Errorf("worktree preparation command %d: %w", i+1, err)
+		}
+	}
 	return nil
 }
 func (c Config) Policy() objective.Policy {
@@ -165,6 +173,11 @@ func (c Config) Checks() []string {
 }
 
 func (c Config) ValidateAdapters(workspace string) error {
+	for i, command := range c.WorktreePreparation {
+		if _, err := providers.ResolveTrustedExecutable(command.Program, workspace); err != nil {
+			return fmt.Errorf("worktree preparation command %d: %w", i+1, err)
+		}
+	}
 	if err := c.Planner.ValidateAdapter(workspace); err != nil {
 		return err
 	}

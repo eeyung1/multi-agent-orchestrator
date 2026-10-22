@@ -13,7 +13,10 @@ Install/authenticate at least one supported CLI: Codex, Claude Code, or Gemini C
 The Planner lists compatible installed agents and lets you select a Planner and
 one or more worker providers. Selecting a built-in requires no provider JSON.
 On first run it asks you to authorize mandatory project validators and offers to
-save that policy. See [setup.md](setup.md).
+save that policy, including an optional explicitly authorized worktree preparation
+command. Fresh worktrees exclude local dependencies such as `node_modules`;
+projects using them may need preparation before workers and validation can run.
+See [setup.md](setup.md).
 The Planner inspects the repository, proposes a task/dependency plan and asks for
 explicit approval. The Go controller then handles eligible acquisition,
 sessions, claim tokens, assignment generations, isolated worktrees, concurrent
