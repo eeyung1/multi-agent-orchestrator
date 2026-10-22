@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/recon"
 )
@@ -93,5 +95,42 @@ func TestProviderErrorsAreBoundedAndDoNotExposeResponseSecrets(t *testing.T) {
 	_, err := (Provider{Endpoint: server.URL, Model: "test"}).Propose(context.Background(), Request{Objective: "work"})
 	if err == nil || strings.Contains(err.Error(), "private-key") {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestProviderRespectsCallerCancellation(t *testing.T) {
+	bin := t.TempDir()
+	program := filepath.Join(bin, "slow-planner")
+	script := `#!/bin/sh
+sleep 10
+printf '%s' '{"questions":["finished"]}'
+`
+	if err := os.WriteFile(program, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := (Provider{
+		Program: program,
+	}).Propose(ctx, Request{Objective: "work"})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected caller cancellation")
+	}
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("expected caller deadline exceeded, got %v", ctx.Err())
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected provider error to preserve caller deadline, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("expected cancellation diagnostic, got %v", err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("provider did not stop promptly after caller cancellation: %s", elapsed)
 	}
 }
