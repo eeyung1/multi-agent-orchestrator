@@ -82,7 +82,7 @@ func (e Envelope) Validate() error {
 	case Handoff, Disconnect:
 		optionalAssignment, detail = true, true
 	default:
-		return errors.New("unsupported agent message type")
+		return ErrUnsupportedMessageType
 	}
 	if (e.Identity != nil) != identity || (e.Enrollment != nil) != enrollment || (e.Role != "") != role {
 		return errors.New("message fields do not match message type")

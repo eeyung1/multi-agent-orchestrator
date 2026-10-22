@@ -19,7 +19,7 @@ const Version1 ProtocolVersion = "orchestrator-agent/v1"
 
 func (v ProtocolVersion) Validate() error {
 	if v != Version1 {
-		return errors.New("unsupported agent protocol version")
+		return ErrUnsupportedVersion
 	}
 	return nil
 }
