@@ -20,7 +20,9 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/repository"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/state"
 )
 
 func TestSilenceNeverAuthorizes(t *testing.T) {
@@ -211,8 +213,9 @@ func TestInteractiveObjectiveThroughHumanReview(t *testing.T) {
 }
 
 func TestBlockedRecoveryRequiresExplicitHumanAuthorization(t *testing.T) {
-	for _, authorize := range []bool{false, true} {
-		t.Run(fmt.Sprintf("authorize=%v", authorize), func(t *testing.T) {
+	for _, tc := range []struct{ authorize, split bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		authorize := tc.authorize
+		t.Run(fmt.Sprintf("authorize=%v/split=%v", authorize, tc.split), func(t *testing.T) {
 			d := t.TempDir()
 			git := func(args ...string) string {
 				t.Helper()
@@ -240,10 +243,24 @@ func TestBlockedRecoveryRequiresExplicitHumanAuthorization(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := coordination.Transition(d, first.SessionID, "BLOCKED"); err != nil {
-				t.Fatal(err)
-			}
-			if err := scheduler.Block(d, p.ID, first, "validation failed"); err != nil {
+			if tc.split {
+				id, err := repository.Identity(d)
+				if err != nil {
+					t.Fatal(err)
+				}
+				store, err := state.Open(d, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := store.Update("test fixture", "historical-split", func(s *state.Snapshot) error {
+					task := s.Tasks[p.ID+"::blocked"]
+					task.Status, task.Blocker = "BLOCKED", "historical recording failure"
+					s.Tasks[p.ID+"::blocked"] = task
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := scheduler.Block(d, p.ID, first, "validation failed"); err != nil {
 				t.Fatal(err)
 			}
 
@@ -271,6 +288,16 @@ func TestBlockedRecoveryRequiresExplicitHumanAuthorization(t *testing.T) {
 				if task.Status != "BLOCKED" || task.Attempt != 1 || task.Token != first.Token {
 					t.Fatalf("silence changed blocked ownership: %+v", task)
 				}
+			}
+			wantStatus := "BLOCKED"
+			if tc.split {
+				wantStatus = "WORKING"
+			}
+			if authorize {
+				wantStatus = "HANDOFF"
+			}
+			if status, err := coordination.SessionStatus(d, first.SessionID); err != nil || status != wantStatus {
+				t.Fatalf("authorization changed operational ownership incorrectly: %s %v", status, err)
 			}
 		})
 	}

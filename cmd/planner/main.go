@@ -55,7 +55,7 @@ func authorizeBlockedRecovery(reader *bufio.Reader, out io.Writer, primary, obje
 		if !yes {
 			continue
 		}
-		if err := scheduler.AuthorizeRecovery(primary, objectiveID, task.ID, task.AssignmentGeneration); err != nil {
+		if err := scheduler.AuthorizeRecovery(primary, objectiveID, task.ID, task.AssignmentGeneration, "interactive user explicitly authorized blocked-task recovery"); err != nil {
 			return fmt.Errorf("authorize recovery for %s: %w", task.ID, err)
 		}
 		fmt.Fprintf(out, "Recovery authorized for %s; prior assignment remains preserved as audit history.\n", task.ID)
