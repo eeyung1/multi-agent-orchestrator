@@ -100,36 +100,100 @@ func bootstrap(reader *bufio.Reader, out io.Writer, workspace, savePath string, 
 	if !yes {
 		return nil
 	}
+	if err := savePolicy(savePath, *c, false); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "Trusted validation and worktree preparation policy saved.")
+	return nil
+}
+
+func configurePreparationPolicy(reader *bufio.Reader, out io.Writer, workspace, savePath string, c *controller.Config) error {
+	before, _ := json.Marshal(c.WorktreePreparation)
+	next := *c
+	next.WorktreePreparation = append([]execution.Command(nil), c.WorktreePreparation...)
+	if err := preparationPolicy(reader, out, workspace, &next); err != nil {
+		return err
+	}
+	after, _ := json.Marshal(next.WorktreePreparation)
+	if string(before) == string(after) {
+		return fmt.Errorf("worktree preparation policy was not changed")
+	}
+	if err := next.ValidatePolicy(); err != nil {
+		return err
+	}
+	yes, err := confirm(reader, out, "Replace the existing trusted policy with this authorized worktree preparation policy? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !yes {
+		return fmt.Errorf("trusted policy update was not authorized")
+	}
+	if err := savePolicy(savePath, next, true); err != nil {
+		return err
+	}
+	*c = next
+	fmt.Fprintln(out, "Trusted worktree preparation policy updated. Existing objectives still require separate policy reauthorization.")
+	return nil
+}
+
+func savePolicy(savePath string, c controller.Config, overwrite bool) error {
 	// Save policy only. Built-in provider choices remain selectable on each new
 	// objective; admitted objectives preserve their own provider selection.
-	policy := *c
-	policy.Planner = controller.Config{}.Planner
-	policy.Workers = nil
-	b, err := json.MarshalIndent(policy, "", "  ")
+	c.Planner = controller.Config{}.Planner
+	c.Workers = nil
+	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
 	b = append(b, '\n')
-	if err := os.MkdirAll(filepath.Dir(savePath), 0700); err != nil {
+	dir := filepath.Dir(savePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(savePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return fmt.Errorf("save policy without overwriting existing files: %w", err)
-	}
-	_, writeErr := f.Write(b)
-	if writeErr == nil {
-		writeErr = f.Sync()
-	}
-	closeErr := f.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	if closeErr != nil {
+	if !overwrite {
+		f, err := os.OpenFile(savePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return fmt.Errorf("save policy without overwriting existing files: %w", err)
+		}
+		_, writeErr := f.Write(b)
+		if writeErr == nil {
+			writeErr = f.Sync()
+		}
+		closeErr := f.Close()
+		if writeErr != nil {
+			return writeErr
+		}
 		return closeErr
 	}
-	fmt.Fprintln(out, "Trusted validation and worktree preparation policy saved.")
-	return nil
+	info, err := os.Lstat(savePath)
+	if err != nil {
+		return fmt.Errorf("inspect existing trusted policy: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("existing trusted policy is not a regular file")
+	}
+	f, err := os.CreateTemp(dir, ".planner-policy-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if err := f.Chmod(0600); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, savePath)
 }
 
 func preparationPolicy(reader *bufio.Reader, out io.Writer, workspace string, c *controller.Config) error {
