@@ -56,6 +56,17 @@ type Objective struct {
 	WorkerProviders []string `json:"worker_providers,omitempty"`
 }
 
+type AssignmentHistory struct {
+	Attempt              uint64 `json:"attempt"`
+	AssignmentGeneration uint64 `json:"assignment_generation"`
+	Token                string `json:"token,omitempty"`
+	SessionID            string `json:"session_id,omitempty"`
+	Branch               string `json:"branch,omitempty"`
+	Worktree             string `json:"worktree,omitempty"`
+	BaseSHA              string `json:"base_sha,omitempty"`
+	Blocker              string `json:"blocker,omitempty"`
+}
+
 type Task struct {
 	ID                   string   `json:"id"`
 	ObjectiveID          string   `json:"objective_id"`
@@ -79,6 +90,7 @@ type Task struct {
 	Blocker              string   `json:"blocker,omitempty"`
 	ValidatedHead        string   `json:"validated_head,omitempty"`
 	ValidationEvidence   string   `json:"validation_evidence,omitempty"`
+	AssignmentHistory    []AssignmentHistory `json:"assignment_history,omitempty"`
 }
 
 type ResultRecord struct {
