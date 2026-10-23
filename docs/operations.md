@@ -7,7 +7,7 @@ validation, or complete a task. No presentation state is persisted.
 
 ## Start and attach
 
-Use the existing [Planner setup](../setup.md), [enrolled Planner](enrolled-planner.md),
+Use the existing [quick Planner setup](../setup.md), [enrolled Planner](enrolled-planner.md),
 and [enrolled worker](enrolled-workers.md) workflows. Managed defaults remain
 supported. A typical enrolled environment starts with trusted policy containing
 `enrolled_capabilities`, project validators, scopes and `max_workers`:

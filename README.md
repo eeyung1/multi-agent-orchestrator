@@ -1,22 +1,10 @@
 # Multi-Agent Orchestrator
 
-The product goal is a universal, agent-neutral orchestration system in which
-multiple heterogeneous AI coding agents can enroll simultaneously. Codex, Claude,
-Gemini, OpenCode, Kimi, Antigravity, and future compatible agents are examples of
-agent endpoints, not architectural dependencies. The final system must not depend
-on a fixed provider list: compatibility, capabilities and explicit enrollment
-determine participation; provider identity does not grant authority.
+Coordinate multiple AI coding agents on a local Git repository. The Go controller manages task ownership, isolated Git worktrees, supervised execution, configured validation, and collected results. You approve the plan and review the evidence; it does not automatically merge or deploy.
 
-**Currently implemented:** authoritative local Go orchestration with configured
-managed workers, plus invitation-based Unix-local attachment for compatible
-independently started clients/bridges, human selection/execution of an enrolled
-Planner, capability-matched dispatch to heterogeneous enrolled workers with
-simultaneous independent execution across isolated Git worktrees, local operational
-status/inspection, and verified multi-process real-world acceptance with recovery.
-**In development:** graphical UX and external product bridge adapters. Local attachment
-alone does not grant execution or coordination authority.
+**New here?** Start with the [quick setup guide](setup.md). The detailed provider, manual-operation, and recovery reference is in [advanced-setup.md](advanced-setup.md).
 
-> **New user?** Start with [setup.md](setup.md) for managed workflows. For the separate local attachment foundation, see [agent-attachment.md](docs/agent-attachment.md). The roadmap below distinguishes shipped foundations from future execution features.
+**Current integration boundary:** the managed quick-start supports Codex, Claude Code, and Gemini CLI. Independent agents require a compatible protocol client/bridge and explicit enrollment. Antigravity is a planned integration, not a built-in provider in the current workflow. The system is local orchestration, not a security sandbox or a public hosted service.
 
 ## Currently implemented
 
@@ -131,7 +119,7 @@ go run ./cmd/planner --list-providers
 go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers codex,gemini --max-workers 3
 ```
 
-See [Connecting the Planner and Worker Agents](setup.md#connecting-the-planner-and-worker-agents)
+See [Connecting the Planner and Worker Agents](advanced-setup.md#connecting-the-planner-and-worker-agents)
 for provider configuration, managed process launch, parallel tasks, and a first
 multi-agent run. Compatible independent clients can now enroll through the separate
 local attachment service. To use one as Planner, use the run-hosted listener
@@ -598,7 +586,7 @@ For another hosted option, [OpenRouter offers free models with limited daily usa
 
 These settings configure only the legacy Python scratch generator. Its model
 factory and role prefixes do not define the Go agent registry, protocol roles,
-or transport contract. For today's Go provider configuration, use [setup.md](setup.md).
+or transport contract. For today's Go provider configuration, use [quick setup](setup.md) or the [advanced reference](advanced-setup.md).
 
 Edit `.env` in the repository root. If you already have one, update it directly; you do not need to copy `.env.example` again. Save your changes and start a new orchestrator run to use them.
 
