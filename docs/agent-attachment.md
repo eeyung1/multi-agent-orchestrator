@@ -23,7 +23,7 @@ and terminal reports. It is a simulation fixture, not an AI coding implementatio
 
 Use the upgraded Go binaries, an already explicitly enrolled test workspace, and
 a new private directory. Existing repository authority enrollment is described in
-[setup.md](../setup.md). Do not edit coordination state to enroll a repository.
+[quick setup](../setup.md). Do not edit coordination state to enroll a repository.
 Unix-domain sockets are supported on Unix systems; other platforms report an
 unsupported/unsafe socket error. Paths must be absolute and canonical, without
 symlink components (on macOS use canonical `/private/tmp` rather than `/tmp`).
