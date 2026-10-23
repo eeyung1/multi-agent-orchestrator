@@ -291,26 +291,20 @@ with `--max-workers 3` if desired. For mixed pools, review which capability each
 proposed task actually uses. No provider/model gains ORCHESTRATOR authority
 because it is selected as Planner.
 
-### Independently running agents versus managed agents
+### Managed providers versus independently enrolled agents
 
-- An **independent chat/process** has its own conversation and lifecycle. It does
-  not join a managed objective just because it is open in the same project.
-- A **configured provider CLI** is an available executable/adapter that Go is
-  authorized to invoke. Selecting it does not attach to an existing process.
-- A **managed worker** is a new subprocess Go launches for an admitted assignment,
-  with its worktree, bounded context, guards and recorded execution evidence.
+These are separate connection models:
 
-Arbitrary existing live processes cannot currently attach as Planner or workers
-to this managed workflow, import their chat histories, or join an objective
-after starting independently. The lower-level manual activation/session commands
-are a separate interface; registering a session there does not attach that
-process to `cmd/planner` scheduling or supervision.
+- A **managed provider CLI** is an installed adapter that Go launches for a Planner request or an approved Worker assignment. Selecting it does not attach to an existing terminal or import its chat history.
+- An **independently enrolled Planner** is a compatible bridge/client that connects to the private socket hosted by its Planner run. A human explicitly selects the exact live session with `candidates` and `select <number>`.
+- An **independently enrolled Worker** is a compatible bridge/client explicitly authorized for the WORKER role and a trusted capability. Go dispatches bounded assignments to it through the scheduler.
+- An **ordinary open chat/process** is not compatible by default. It needs a real bridge/integration that translates the protocol requests and task instructions to and from that product's runtime.
 
-To run several agents, configure the provider pool, set `max_workers`, and approve
-a plan with independent bounded tasks. Let Go launch them. Do not open several
-independent chats in the same checkout and manually copy claims or tokens to
-simulate managed workers. Users normally do not need to manage session IDs,
-tokens, generations, or worktree internals themselves.
+For the independent workflow, follow the quick guide's [Planner and Worker enrollment steps](setup.md#4a-choose-how-your-agents-join), then read the detailed [enrolled Planner](docs/enrolled-planner.md), [enrolled Worker](docs/enrolled-workers.md), and [local attachment](docs/agent-attachment.md) guides. These steps require a trusted invitation, private one-use credential, explicit role selection/authorization, and capability policy. Planner invitations or Worker advertisements do not grant the role by themselves.
+
+The repository's `cmd/agent-bridge` is a protocol/fixture client. Its optional `--proposal-file` and `--worker-file` modes demonstrate structured exchanges; they do not provide AI reasoning or a vendor integration. Antigravity and other external products need a compatible bridge before they can be used as live Planner/Worker agents.
+
+In either model, Go owns task scheduling, claims, assignment generations, worktrees, supervision, validation and evidence. Workers receive task instructions from the controller, not directly from other Workers. The human remains responsible for plan approval, result review, and merge/deployment.
 
 ### Troubleshoot agent connections
 
