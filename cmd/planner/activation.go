@@ -70,7 +70,7 @@ func activate(reader *bufio.Reader, out io.Writer, workspace string, c *controll
 }
 
 func activateWorkers(reader *bufio.Reader, out io.Writer, workspace string, c *controller.Config, workerIDs string) error {
-	if workerIDs == "" && len(c.Workers) == 0 {
+	if workerIDs == "" && len(c.Workers) == 0 && len(c.EnrolledCapabilities) == 0 {
 		available := available(workspace, false)
 		if len(available) == 0 {
 			return fmt.Errorf("no compatible worker CLI is available; install/authenticate a supported CLI or explicitly configure custom workers")

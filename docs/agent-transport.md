@@ -139,15 +139,16 @@ SessionID, Go-issued session generation). There is no transport self-bind API or
 duplicate binding/ownership identity type here. V2 enrollment responses and
 lifecycle acknowledgments report registry incarnation, but requests do not select
 it. The handler retains its trusted binding and rechecks current registry state.
-Assignment
-messages also need the existing scheduler AssignmentRef/ownership checks.
+V4 worker messages also need their durable scheduler dispatch correlation and
+existing private ownership checks. Operational claim tokens stay inside Go.
 Transport itself deliberately permits different syntactically valid session
 identities; syntax/direction validation alone cannot establish session ownership.
 
 Phase 4 implements independently started compatible local clients over Unix IPC,
 with bounded admission and session handling outside this package. Public/remote
-listeners, HTTP/RPC/stdio provider bridges, same-session reconnect and enrolled-worker
-dispatch remain unimplemented. Phase 5 adds enrolled Planner request/proposal
+listeners, HTTP/RPC/stdio provider bridges and same-session reconnect remain
+unimplemented. Phase 6 adds enrolled-worker routing and scheduler handling outside
+the transport package. Phase 5 adds enrolled Planner request/proposal
 routing in the attachment handler and authoritative selection in the registry;
 transport itself still has no role or request-adoption authority. Transport alone
 still does not update registry liveness; Phase 4's handler applies bound messages.

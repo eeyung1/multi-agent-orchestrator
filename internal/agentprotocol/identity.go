@@ -24,8 +24,11 @@ const Version2 ProtocolVersion = "orchestrator-agent/v2"
 // Version3 adds correlated structured Planner requests/proposals.
 const Version3 ProtocolVersion = "orchestrator-agent/v3"
 
+// Version4 adds bounded enrolled-worker assignment/report messages.
+const Version4 ProtocolVersion = "orchestrator-agent/v4"
+
 func (v ProtocolVersion) Validate() error {
-	if v != Version1 && v != Version2 && v != Version3 {
+	if v != Version1 && v != Version2 && v != Version3 && v != Version4 {
 		return ErrUnsupportedVersion
 	}
 	return nil

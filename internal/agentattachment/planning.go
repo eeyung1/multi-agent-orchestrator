@@ -12,12 +12,13 @@ import (
 
 // Routing is process-local; selection, role and request authority are durable in
 // the registry. Routes cannot grant authority or accept an unsolicited response.
-type plannerConnection struct {
+type sessionConnection struct {
 	version   agentprotocol.ProtocolVersion
 	transport agenttransport.Transport
 	done      chan struct{}
 	ready     chan struct{}
 	mu        sync.Mutex
+	work      *workerExchange
 	pending   *agentprotocol.PlannerCorrelation
 	response  chan planning.Proposal
 }
@@ -66,7 +67,7 @@ func (s *Server) RequestPlanning(ctx context.Context, ref agentregistry.Ref, r a
 	ch := conn.response
 	conn.mu.Unlock()
 	defer func() { conn.mu.Lock(); conn.pending = nil; conn.response = nil; conn.mu.Unlock() }()
-	e := agentprotocol.Envelope{ProtocolVersion: agentprotocol.Version3, Type: agentprotocol.PlannerRequest, AgentID: ref.AgentID, SessionID: ref.SessionID, PlanningRequest: &r}
+	e := agentprotocol.Envelope{ProtocolVersion: conn.version, Type: agentprotocol.PlannerRequest, AgentID: ref.AgentID, SessionID: ref.SessionID, PlanningRequest: &r}
 	if err := conn.transport.Send(ctx, e); err != nil {
 		return planning.Proposal{}, err
 	}

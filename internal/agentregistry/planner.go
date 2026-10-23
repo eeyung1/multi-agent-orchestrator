@@ -29,7 +29,7 @@ func planningCap(id agentprotocol.Identity) bool {
 	return false
 }
 func candidate(v View) bool {
-	return v.Current && v.Live && v.Session.Status == Ready && v.Session.Identity.ProtocolVersion == agentprotocol.Version3 && supports(v.Session.Identity, agentprotocol.RolePlanner) && planningCap(v.Session.Identity) && (v.Session.AssignedRole == "" || v.Session.AssignedRole == agentprotocol.RolePlanner)
+	return v.Current && v.Live && v.Session.Status == Ready && (v.Session.Identity.ProtocolVersion == agentprotocol.Version3 || v.Session.Identity.ProtocolVersion == agentprotocol.Version4) && supports(v.Session.Identity, agentprotocol.RolePlanner) && planningCap(v.Session.Identity) && (v.Session.AssignedRole == "" || v.Session.AssignedRole == agentprotocol.RolePlanner)
 }
 
 // PlannerCandidates is an authoritative snapshot, never a role grant. Selection
@@ -52,7 +52,7 @@ func (r *Registry) PlannerCandidates() ([]View, error) {
 // A nonempty expected binding ID is mandatory to replace an existing run. The
 // compare-and-swap also serializes competing human selections across processes.
 func (r *Registry) SelectPlanner(run string, ref Ref, expected string, authorized bool, decision string) (state.PlannerBinding, error) {
-	if !authorized || ref.validate() != nil || agentprotocol.SessionID(run).Validate() != nil || state.RegistryDecision(decision) != nil {
+	if !authorized || ref.Validate() != nil || agentprotocol.SessionID(run).Validate() != nil || state.RegistryDecision(decision) != nil {
 		return state.PlannerBinding{}, ErrPlanner
 	}
 	id, err := nonce()
@@ -176,7 +176,7 @@ func (r *Registry) AcceptPlannerResponse(ref Ref, response agentprotocol.Plannin
 }
 
 func (r *Registry) CheckPlanner(ref Ref, c agentprotocol.PlannerCorrelation, complete bool) error {
-	if ref.validate() != nil || c.Validate() != nil {
+	if ref.Validate() != nil || c.Validate() != nil {
 		return ErrPlanner
 	}
 	return r.transact("planner-check", func(data *state.AgentRegistryState, _ time.Time) (bool, error) {

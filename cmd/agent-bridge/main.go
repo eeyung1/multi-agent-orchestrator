@@ -1,5 +1,5 @@
 // agent-bridge is a provider-neutral attachment/liveness example. It performs no
-// coding. Optional proposal-file mode demonstrates structured Planner exchange.
+// AI reasoning. Optional fixtures demonstrate structured Planner/worker exchange.
 package main
 
 import (
@@ -39,12 +39,13 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	provider := f.String("provider", "compatible-example", "informational provider/runtime metadata")
 	capability := f.String("capability", "example/heartbeat", "advertised capability; must be invited")
 	role := f.String("role", "WORKER", "advertised supported role; grants no assigned role")
+	workerFile := f.String("worker-file", "", "optional bounded file-write JSON fixture; enables v4 WORKER example, not AI reasoning")
 	proposalFile := f.String("proposal-file", "", "optional structured proposal JSON fixture; enables v3 PLANNER/planning example, not an AI implementation")
 	interval := f.Duration("heartbeat-interval", 5*time.Second, "heartbeat interval shorter than listener idle timeout")
 	if err := f.Parse(args); err != nil {
 		return errors.New("invalid bridge arguments")
 	}
-	if f.NArg() != 0 || *interval <= 0 {
+	if f.NArg() != 0 || *interval <= 0 || (*proposalFile != "" && *workerFile != "") {
 		return errors.New("invalid bridge configuration")
 	}
 	proof, err := agentattachment.ReadCredential(*credential)
@@ -62,6 +63,10 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		id.SupportedRoles = []agentprotocol.Role{agentprotocol.RolePlanner}
 		id.Capabilities = []agentprotocol.Capability{agentprotocol.PlanningCapability}
 	}
+	if *workerFile != "" {
+		id.ProtocolVersion = agentprotocol.Version4
+		id.SupportedRoles = []agentprotocol.Role{agentprotocol.RoleWorker}
+	}
 	handshake, cancel := context.WithTimeout(ctx, 10*time.Second)
 	c, err := agentattachment.DialLocal(handshake, *path, id, proof)
 	cancel()
@@ -73,11 +78,15 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	planningErrors := make(chan error, 1)
-	if *proposalFile != "" {
+	if *proposalFile != "" || *workerFile != "" {
 		planningCtx, stopPlanning := context.WithCancel(ctx)
 		finished := make(chan struct{})
 		go func() {
 			defer close(finished)
+			if *workerFile != "" {
+				planningErrors <- serveWorker(planningCtx, c, *workerFile)
+				return
+			}
 			for {
 				request, err := c.ReceivePlanning(planningCtx)
 				if err != nil {

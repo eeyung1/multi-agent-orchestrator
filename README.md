@@ -10,8 +10,9 @@ determine participation; provider identity does not grant authority.
 **Currently implemented:** authoritative local Go orchestration with configured
 managed workers, plus invitation-based Unix-local attachment for compatible
 independently started clients/bridges, and human selection/execution of an enrolled
-Planner. **Target architecture / in development:** dispatching tasks to
-heterogeneous enrolled workers. Local attachment alone does not grant execution
+Planner, and capability-matched dispatch to heterogeneous enrolled workers with
+simultaneous independent execution. **In development:** operational UX and
+real-product bridge acceptance. Local attachment alone does not grant execution
 or coordination authority.
 
 > **New user?** Start with [setup.md](setup.md) for managed workflows. For the separate local attachment foundation, see [agent-attachment.md](docs/agent-attachment.md). The roadmap below distinguishes shipped foundations from future execution features.
@@ -29,14 +30,15 @@ are separate from the protocol-session registry and its new local admission
 handshake. There is no same-session reconnect protocol. Built-in CLI adapters still
 use a closed catalog;
 trusted custom CLI adapters and HTTP planning configuration offer additional
-integration paths. Workers are primarily invoked as managed subprocesses. An
-approved task selects a configured capability; the scheduler does not yet match
-tasks against a dynamic registry of independently connected available agents.
+integration paths. Managed subprocess workers remain the default. With an explicit
+`enrolled_capabilities` policy, the existing scheduler can also reserve live,
+connected, READY sessions explicitly assigned WORKER whose capabilities match the
+approved task. Provider names are informational.
 
 Phase 1 supplies provider-neutral identity/envelope types in `internal/agentprotocol`.
 Phase 2 adds `internal/agentregistry`: authoritative internal Go admission, session
 incarnation fencing, role decisions, deterministic liveness and eligibility queries,
-persisted in structured state (now schema 3, with locked v1/v2 migration). See the
+persisted in structured state (now schema 4, with locked v1/v2/v3 migration). See the
 [focused protocol/registry contract](docs/agent-protocol.md). These are internal
 foundations, not external attachment. Existing managed adapters, worker context,
 configuration and dispatch remain unchanged and do not automatically enroll agents
@@ -55,9 +57,10 @@ authoritative session binding, and acknowledged heartbeat/disconnect. New sessio
 are READY with no assigned role. See [local attachment instructions and trust
 boundaries](docs/agent-attachment.md). "Any compatible agent" requires a client
 or bridge that speaks the protocol; closed products need an integration surface.
-No enrolled-worker dispatch or remote/public service is provided.
+The standalone listener remains an admission/liveness tool. Task dispatch uses
+the run-hosted Planner/controller listener; no remote/public service is provided.
 
-Phase 5 adds explicit human selection of a current, live, READY V3 session
+Phase 5 adds explicit human selection of a current, live, READY V3/V4 session
 advertising PLANNER support and the `planning` capability. Selection and correlated
 requests persist in Go-owned structured state. Starting `cmd/planner` with
 `--enrolled-planner-socket /private/path/agents.sock` hosts local attachment for
@@ -65,6 +68,16 @@ that run, sends typed recon/objective/policy requests, and receives proposals.
 The existing Go validation and human approval gates still apply, including an
 atomic selected-session/response check at task adoption. Managed Planner adapters
 remain the default. See [enrolled Planner operation](docs/enrolled-planner.md).
+
+Phase 6 connects enrolled V4 WORKER sessions to the existing scheduler, trusted
+worktree preparation, supervised execution, Go-owned commits, validation, and review.
+Selection requires explicit role authorization and capability policy. One session
+executes at most one assignment; independent tasks can run simultaneously up to
+`max_workers`. Each has its own generation, private claim, branch and worktree.
+Managed definitions take priority for a shared capability; remaining enrolled
+candidates are selected by ascending Go-issued incarnation. Disconnects and failed
+execution preserve ownership/evidence for human-authorized recovery. See
+[enrolled worker configuration, lifecycle and limitations](docs/enrolled-workers.md).
 
 ### Start the managed Planner workflow
 
@@ -96,8 +109,9 @@ See [Connecting the Planner and Worker Agents](setup.md#connecting-the-planner-a
 for provider configuration, managed process launch, parallel tasks, and a first
 multi-agent run. Compatible independent clients can now enroll through the separate
 local attachment service. To use one as Planner, use the run-hosted listener
-described in [enrolled Planner operation](docs/enrolled-planner.md); enrolled
-workers do not join managed dispatch yet.
+described in [enrolled Planner operation](docs/enrolled-planner.md). For workers,
+use [enrolled worker operation](docs/enrolled-workers.md); arbitrary independent
+processes still need a protocol bridge.
 Existing arbitrary chats/processes cannot attach without a compatible bridge.
 
 Detection inspects trusted absolute PATH entries without running agents or
@@ -238,11 +252,12 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 **Roadmap / in development.** Phase 1's wire/domain model, Phase 2's internal
 registry/liveness foundation, Phase 3's transport library, and Phase 4's local
 attachment/session lifecycle and Phase 5's enrolled Planner selection/exchange
-are implemented. Phases 6–8 remain future work. This
+and Phase 6 enrolled-worker dispatch are implemented. Phases 7–8 remain future work. This
 milestone extends the existing control-plane
 foundations with dynamic agent admission and a common logical contract. The
 following complete lifecycle remains the target; enrolled Planner communication
-is implemented, while enrolled-worker task execution remains future work.
+and enrolled-worker task execution are implemented locally; discovery and remote
+transports remain future work.
 
 ### Required enrollment lifecycle
 
@@ -305,8 +320,8 @@ should be required. An available planning-capable agent can be selected as
 Planner under the required human authorization; available Workers receive only
 Go-issued assignments. Discovery, a capability advertisement, or a connection
 alone grants no permission. Phase 4 now supplies explicit invitation-based local
-enrollment; Phase 5 supplies human Planner selection. Discovery and enrolled
-worker task dispatch remain future.
+enrollment; Phase 5 supplies human Planner selection and Phase 6 supplies enrolled
+worker dispatch. Automatic discovery remains future work.
 
 ### Phase 1 — Protocol and identity
 
@@ -314,8 +329,8 @@ worker task dispatch remain future.
 and session identities, informational provider/runtime metadata, extensible
 capabilities, explicit supported roles, admission-state vocabulary, strict JSON
 envelopes, and references to existing scheduler assignment identity. Shape and
-message-direction validation grant no authority. Phase 2 supplies internal Go
-admission/registry/liveness; transport integration remains later work. See the
+message-direction validation grant no authority. Later implemented phases add Go
+admission/registry/liveness and local transport integration. See the
 [Phase 1 contract and boundaries](docs/agent-protocol.md).
 
 ### Phase 2 — Registry and liveness
@@ -324,8 +339,8 @@ admission/registry/liveness; transport integration remains later work. See the
 existing structured-state transaction with READY/BUSY/BLOCKED/DISCONNECTED state,
 explicit role decisions, fenced heartbeats, fresh-session supersession, and
 policy-based expiry/eligibility. Expiry disconnects the registry session without
-releasing claims or authorizing recovery. This is not transport reconnect,
-dynamic Planner execution, or scheduler dispatch to enrolled agents. See the
+releasing claims or authorizing recovery. This layer alone performs no transport
+reconnect, Planner execution or scheduler dispatch; later layers supply those integrations. See the
 [Phase 2 API and persistence boundaries](docs/agent-protocol.md#phase-2-authoritative-registry-and-liveness).
 
 ### Phase 3 — Transport abstraction
@@ -345,8 +360,8 @@ transport in the new Phase 4 handler; there is no public network listener. See
 use private Unix sockets and explicit, expiring one-use invitations. Go binds
 AgentID/SessionID to its registry incarnation; heartbeats and disconnect/handoff
 are fenced against that binding. Handoff here disconnects; it transfers no claims.
-Advertisements grant no assigned role. Assignment/progress/result execution is
-deliberately rejected until later integration. See [Phase 4 usage and security
+Advertisements grant no assigned role. V4 worker messages require Phase 6
+controller dispatch; unsolicited or legacy reserved task messages are rejected. See [Phase 4 usage and security
 limits](docs/agent-attachment.md). There is no remote/public transport.
 
 ### Phase 5 — Planner enrollment/selection
@@ -362,10 +377,13 @@ role transfers automatically. Managed Planner adapters remain available. See
 
 ### Phase 6 — Heterogeneous parallel workers
 
-Match eligible tasks to available enrolled worker capabilities. Support
-simultaneous independent assignments, per-agent liveness/progress, and generation
-fencing across disconnect/reconnect. Preserve the one-owner/claim/worktree/scope
-invariant and existing validation/evidence gates.
+**Implemented locally:** match approved task capabilities to explicitly authorized,
+live, connected enrolled WORKER sessions. Reserve task ownership and worker BUSY
+state atomically before worktree creation and bounded V4 assignment delivery.
+Independent assignments execute simultaneously with exact session/incarnation/
+dispatch/generation fencing, Go validation and human review. Replacement sessions
+inherit no assignments; retries use existing human recovery and fresh worktrees.
+Managed workers remain supported. See [Phase 6 operation](docs/enrolled-workers.md).
 
 ### Phase 7 — Operational UX
 

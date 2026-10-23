@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	SchemaVersion   = 3
+	SchemaVersion   = 4
 	ProtocolVersion = "orchestrator/v1"
 	stateFile       = "state.json"
 	lockDir         = ".orchestrator-state-lock"
@@ -60,17 +60,19 @@ type Objective struct {
 }
 
 type AssignmentHistory struct {
-	Attempt              uint64 `json:"attempt"`
-	AssignmentGeneration uint64 `json:"assignment_generation"`
-	Token                string `json:"token,omitempty"`
-	SessionID            string `json:"session_id,omitempty"`
-	Branch               string `json:"branch,omitempty"`
-	Worktree             string `json:"worktree,omitempty"`
-	BaseSHA              string `json:"base_sha,omitempty"`
-	Blocker              string `json:"blocker,omitempty"`
+	WorkerDispatch       *WorkerDispatch `json:"worker_dispatch,omitempty"`
+	Attempt              uint64          `json:"attempt"`
+	AssignmentGeneration uint64          `json:"assignment_generation"`
+	Token                string          `json:"token,omitempty"`
+	SessionID            string          `json:"session_id,omitempty"`
+	Branch               string          `json:"branch,omitempty"`
+	Worktree             string          `json:"worktree,omitempty"`
+	BaseSHA              string          `json:"base_sha,omitempty"`
+	Blocker              string          `json:"blocker,omitempty"`
 }
 
 type Task struct {
+	WorkerDispatch       *WorkerDispatch     `json:"worker_dispatch,omitempty"`
 	ID                   string              `json:"id"`
 	ObjectiveID          string              `json:"objective_id"`
 	Feature              string              `json:"feature"`
@@ -216,7 +218,7 @@ func (s *Store) read(allowLegacy bool) (Snapshot, error) {
 	if s.repositoryID != "" && snap.Authority.RepositoryID != s.repositoryID {
 		return Snapshot{}, errors.New("state belongs to different repository")
 	}
-	if snap.Authority.Protocol != ProtocolVersion || (snap.Authority.Schema != SchemaVersion && !(allowLegacy && (snap.Authority.Schema == 1 || snap.Authority.Schema == 2))) {
+	if snap.Authority.Protocol != ProtocolVersion || (snap.Authority.Schema != SchemaVersion && !(allowLegacy && (snap.Authority.Schema == 1 || snap.Authority.Schema == 2 || snap.Authority.Schema == 3))) {
 		return Snapshot{}, errors.New("unsupported state schema/protocol")
 	}
 	if err := snap.validateAgentRegistry(); err != nil {

@@ -215,6 +215,19 @@ func Run(ctx context.Context, workspace, objectiveID string, c Config) (Report, 
 		return Report{}, err
 	}
 	for _, t := range s.Tasks {
+		if t.ObjectiveID == objectiveID && t.WorkerDispatch != nil {
+			opStatus, _ := coordination.SessionStatus(primary, t.SessionID)
+			if t.Status == "ASSIGNED" && c.Runtime != nil && !(t.ValidatedHead != "" && opStatus == "COMPLETE") {
+				d := t.WorkerDispatch
+				if e := c.Runtime.Registry.Check(workerRef(*d)); e != nil {
+					a := assignmentResult(t)
+					if e := scheduler.Block(primary, objectiveID, a, "enrolled worker session lost; explicit human recovery required"); e != nil {
+						return Report{}, e
+					}
+					continue
+				}
+			}
+		}
 		if t.ObjectiveID != objectiveID || t.Status != "ASSIGNED" || t.ValidatedHead == "" {
 			continue
 		}
@@ -260,9 +273,22 @@ func Run(ctx context.Context, workspace, objectiveID string, c Config) (Report, 
 				decisions = append(decisions, Decision{TaskID: t.ID, Kind: "dependency_integration", Question: why})
 				continue
 			}
-			a, e := scheduler.Acquire(scheduler.Request{Workspace: primary, Agent: "worker-" + task.Capability, Role: task.Capability, Base: base, Plan: plan, TaskID: task.ID})
+			request := scheduler.Request{MaxWorkers: c.MaxWorkers, Workspace: primary, Agent: "worker-" + task.Capability, Role: task.Capability, Base: base, Plan: plan, TaskID: task.ID}
+			if _, managed := c.Workers[task.Capability]; !managed {
+				ref, e := c.selectWorker(task.Capability)
+				if e != nil {
+					decisions = append(decisions, Decision{TaskID: t.ID, Kind: "worker_unavailable", Question: e.Error()})
+					continue
+				}
+				request.Worker = &ref
+				request.Registry = c.Runtime.Registry
+				request.Agent = "enrolled-worker"
+			}
+			a, e := scheduler.Acquire(request)
 			if e != nil {
-				attempted[t.ID] = true
+				if a.AssignmentGeneration != 0 || len(running) == 0 {
+					attempted[t.ID] = true
+				}
 				decisions = append(decisions, Decision{TaskID: t.ID, Kind: "ownership_or_startup", Question: e.Error()})
 				continue
 			}
@@ -334,7 +360,7 @@ func runAssignment(ctx context.Context, primary string, plan objective.Plan, a s
 		if err == nil {
 			return nil
 		}
-		if attempt >= c.RepairAttempts || ctx.Err() != nil || errors.Is(err, review.ErrValidationBoundary) {
+		if a.WorkerDispatch != nil || attempt >= c.RepairAttempts || ctx.Err() != nil || errors.Is(err, review.ErrValidationBoundary) {
 			return err
 		}
 		// Only repair our own just-finished child under the same ownership. This
@@ -367,6 +393,14 @@ func assignmentGuard(primary string, plan objective.Plan, a scheduler.Result, c 
 		}
 		if err := scheduler.Verify(primary, plan.ID, a); err != nil {
 			return err
+		}
+		if a.WorkerDispatch != nil {
+			if c.Runtime == nil || !c.Runtime.Server.Connected(workerRef(*a.WorkerDispatch)) {
+				return errors.New("enrolled worker disconnected")
+			}
+			if err := scheduler.VerifyWorker(primary, plan.ID, a); err != nil {
+				return err
+			}
 		}
 		sum, err := recon.InstructionsDigest(primary)
 		if err != nil {
@@ -408,7 +442,7 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 	wc := WorkerContext{Protocol: "ORCHESTRATOR is the sole authority. Execute only this task in this worktree/scope. Do not edit coordination state, acquire other work, merge, push, deploy, or self-authorize. Follow supplied instructions. Commit only owned product changes locally without co-author trailers. Return blockers for missing permission/dependencies; never release or transfer ownership yourself. The controller runs configured validation and collects results.", Objective: plan.Objective, Task: a.Task, Session: a.SessionID, Token: a.Token, Generation: a.AssignmentGeneration, Worktree: a.Worktree, Branch: a.Branch, Instructions: r.Instructions}
 	wc.Feedback = feedback
 	w := c.Workers[a.Task.Capability]
-	if w.Adapter != "" {
+	if w.Adapter != "" || a.WorkerDispatch != nil {
 		wc.Protocol = "ORCHESTRATOR is the sole authority. Implement only the assigned task inside the exact worktree/scope. Follow supplied project instructions. Leave changes uncommitted: the Go controller checks owned paths and makes the local feature commit. Do not stage, commit, push, merge, deploy, edit shared coordination state, acquire tasks, or grant yourself permissions. Report blockers rather than bypassing denied operations."
 	}
 	for _, dep := range a.Task.DependsOn {
@@ -433,7 +467,11 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 	if w.Adapter != "" {
 		req.Environment = providers.Environment(primary)
 	}
-	if _, err := execution.Run(req); err != nil {
+	if a.WorkerDispatch != nil {
+		if err := c.executeEnrolled(ctx, primary, plan, a, wc, req); err != nil {
+			return err
+		}
+	} else if _, err := execution.Run(req); err != nil {
 		return err
 	}
 	s, err = scheduler.Read(primary)
@@ -458,7 +496,7 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 		}
 		return nil
 	}
-	if w.Adapter != "" {
+	if w.Adapter != "" || a.WorkerDispatch != nil {
 		if _, err := review.CommitOwned(task, guard, runGit); err != nil {
 			return err
 		}
@@ -504,6 +542,14 @@ func execute(ctx context.Context, primary string, plan objective.Plan, a schedul
 	in := input(primary, plan.ID, task)
 	in.ValidatedHead = boundary.Head
 	in.Validation = strings.Join(evidence, "\n")
+	if a.WorkerDispatch != nil {
+		s, err := scheduler.Read(primary)
+		if err != nil {
+			return err
+		}
+		d := s.Tasks[plan.ID+"::"+a.Task.ID].WorkerDispatch
+		in.Validation += "\nEnrolled worker terminal report: " + d.Detail
+	}
 	in.Artifacts = []string{a.Worktree}
 	if err := review.RecordValidation(in); err != nil {
 		return err

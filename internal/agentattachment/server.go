@@ -1,5 +1,5 @@
 // Package agentattachment admits compatible local clients and binds connections
-// to Go-issued registry refs. It has no scheduler, task, role-grant or execution API.
+// to Go-issued registry refs. It routes bounded conversations but has no scheduler or role-grant authority.
 package agentattachment
 
 import (
@@ -35,6 +35,8 @@ type Config struct {
 	// Trusted test seams. Functions must be concurrency-safe. Nil uses real time.
 	Clock       func() time.Time
 	WithTimeout func(context.Context, time.Duration) (context.Context, context.CancelFunc)
+	// Optional trusted diagnostic observer; never used for authority/admission.
+	SessionEnded func(agentregistry.Ref, error)
 }
 
 func DefaultConfig() Config {
@@ -74,7 +76,7 @@ type Server struct {
 	closed   bool
 	observed time.Time
 	routesMu sync.Mutex
-	routes   map[agentregistry.Ref]*plannerConnection
+	routes   map[agentregistry.Ref]*sessionConnection
 }
 
 func New(registry *agentregistry.Registry, c Config) (*Server, error) {
@@ -89,7 +91,7 @@ func New(registry *agentregistry.Registry, c Config) (*Server, error) {
 	if c.WithTimeout == nil {
 		c.WithTimeout = context.WithTimeout
 	}
-	return &Server{registry: registry, c: c, pending: map[string]invitation{}, routes: map[agentregistry.Ref]*plannerConnection{}}, nil
+	return &Server{registry: registry, c: c, pending: map[string]invitation{}, routes: map[agentregistry.Ref]*sessionConnection{}}, nil
 }
 
 func randomHex(size int) (string, error) {
@@ -289,11 +291,16 @@ func (s *Server) Handle(ctx context.Context, t agenttransport.Transport) (result
 		return err
 	}
 	defer func() {
+		if s.c.SessionEnded != nil {
+			s.c.SessionEnded(ref, result)
+		}
+	}()
+	defer func() {
 		if err := s.registry.Disconnect(ref, "attachment_connection_closed"); err != nil && !errors.Is(err, agentregistry.ErrFenced) {
 			result = errors.Join(result, ErrRegistry)
 		}
 	}()
-	connection := &plannerConnection{version: e.ProtocolVersion, transport: t, ready: make(chan struct{}), done: make(chan struct{})}
+	connection := &sessionConnection{version: e.ProtocolVersion, transport: t, ready: make(chan struct{}), done: make(chan struct{})}
 	s.routesMu.Lock()
 	s.routes[ref] = connection
 	s.routesMu.Unlock()
@@ -342,6 +349,8 @@ func (s *Server) sessionMessage(ctx context.Context, t agenttransport.Transport,
 		return ErrUnsupported
 	}
 	switch e.Type {
+	case agentprotocol.WorkerAcceptance, agentprotocol.WorkerProgress, agentprotocol.WorkerBlocker, agentprotocol.WorkerResult:
+		return s.workerResponse(ref, e)
 	case agentprotocol.PlannerResponse:
 		return s.plannerResponse(ref, e)
 	case agentprotocol.Heartbeat:

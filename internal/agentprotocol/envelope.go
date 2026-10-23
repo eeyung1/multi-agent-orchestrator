@@ -7,6 +7,11 @@ import "errors"
 type MessageType string
 
 const (
+	WorkerAssignment       MessageType = "worker_assignment"
+	WorkerAcceptance       MessageType = "worker_acceptance"
+	WorkerProgress         MessageType = "worker_progress"
+	WorkerBlocker          MessageType = "worker_blocker"
+	WorkerResult           MessageType = "worker_result"
 	EnrollmentRequest      MessageType = "enrollment_request"
 	EnrollmentResponse     MessageType = "enrollment_response"
 	CapabilityRegistration MessageType = "capability_registration"
@@ -75,8 +80,8 @@ type SessionAck struct {
 // identify the participant, including on messages sent by Go to that agent.
 // Identity is an advertisement; Role is explicit Go-issued responsibility;
 // Assignment is a scheduler reference; Detail is untrusted report/reason text.
-// V3 adds typed reasoning requests/proposals. Worker task/artifact payloads
-// remain future protocol work; shape validation grants no execution authority.
+// V3 adds typed reasoning requests/proposals; V4 adds bounded worker exchanges.
+// Shape validation grants no execution authority.
 type Envelope struct {
 	ProtocolVersion  ProtocolVersion     `json:"protocol_version"`
 	Type             MessageType         `json:"type"`
@@ -90,6 +95,7 @@ type Envelope struct {
 	Invitation       *InvitationProof    `json:"invitation,omitempty"`
 	PlanningRequest  *PlanningRequest    `json:"planning_request,omitempty"`
 	PlanningResponse *PlanningResponse   `json:"planning_response,omitempty"`
+	Work             *WorkerMessage      `json:"work,omitempty"`
 	Acknowledgment   *SessionAck         `json:"acknowledgment,omitempty"`
 }
 
@@ -103,9 +109,12 @@ func (e Envelope) Validate() error {
 	if err := e.SessionID.Validate(); err != nil {
 		return err
 	}
+	if err := e.validateWork(); err != nil {
+		return err
+	}
 	if e.Type == PlannerRequest || e.Type == PlannerResponse {
-		if e.ProtocolVersion != Version3 {
-			return errors.New("Planner messages require v3")
+		if e.ProtocolVersion != Version3 && e.ProtocolVersion != Version4 {
+			return errors.New("Planner messages require v3 or v4")
 		}
 		if (e.PlanningRequest != nil) != (e.Type == PlannerRequest) || (e.PlanningResponse != nil) != (e.Type == PlannerResponse) {
 			return errors.New("invalid Planner payload")
@@ -141,7 +150,7 @@ func (e Envelope) Validate() error {
 		optionalAssignment = true
 	case Handoff, Disconnect:
 		optionalAssignment, detail = true, true
-	case PlannerRequest, PlannerResponse:
+	case PlannerRequest, PlannerResponse, WorkerAssignment, WorkerAcceptance, WorkerProgress, WorkerBlocker, WorkerResult:
 	case SessionAcknowledgment:
 		if e.ProtocolVersion == Version1 || e.Acknowledgment == nil {
 			return errors.New("session acknowledgment requires v2")
@@ -231,7 +240,7 @@ func (e Envelope) ValidateFrom(origin Origin) error {
 	}
 	want := FromAgent
 	switch e.Type {
-	case EnrollmentResponse, RoleAssignment, Assignment, SessionAcknowledgment, PlannerRequest:
+	case EnrollmentResponse, RoleAssignment, Assignment, SessionAcknowledgment, PlannerRequest, WorkerAssignment:
 		want = FromOrchestrator
 	}
 	if origin != want {

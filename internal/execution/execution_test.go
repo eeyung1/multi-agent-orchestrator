@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,42 @@ import (
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 )
+
+func TestSuperviseCancellationCannotReportSuccess(t *testing.T) {
+	for _, mode := range []string{"cancellation", "deadline"} {
+		t.Run(mode, func(t *testing.T) {
+			root, wt := setup(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req := Request{Primary: root, Worktree: wt, SessionID: "a1", Context: ctx}
+			want := context.Canceled
+			if mode == "deadline" {
+				req.Timeout = time.Nanosecond
+				want = context.DeadlineExceeded
+			}
+			joined := make(chan struct{})
+			result, err := Supervise(req, func(call context.Context) error {
+				defer close(joined)
+				if mode == "cancellation" {
+					cancel()
+				}
+				<-call.Done()
+				return nil // A buggy bridge must not manufacture success.
+			})
+			if !errors.Is(err, want) || result.ExitCode == 0 {
+				t.Fatalf("cancelled exchange succeeded: %+v %v", result, err)
+			}
+			select {
+			case <-joined:
+			default:
+				t.Fatal("supervisor returned before joining operation")
+			}
+			if status, err := coordination.SessionStatus(root, "a1"); err != nil || status != "BLOCKED" {
+				t.Fatalf("cancelled assignment not blocked: %s %v", status, err)
+			}
+		})
+	}
+}
 
 func setup(t *testing.T) (string, string) {
 	t.Helper()
@@ -122,9 +159,9 @@ func TestRunExecutesInsideWorktree(t *testing.T) {
 
 func TestRunFailureBlocksSession(t *testing.T) {
 	root, wt := setup(t)
-	_, err := Run(Request{Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "sh", Args: []string{"-c", "echo failed; exit 7"}}, Timeout: time.Second})
-	if err == nil {
-		t.Fatal("expected failure")
+	result, err := Run(Request{Primary: root, Worktree: wt, SessionID: "a1", Command: Command{Program: "sh", Args: []string{"-c", "echo failed; exit 7"}}, Timeout: time.Second})
+	if err == nil || result.ExitCode != 7 {
+		t.Fatalf("expected original subprocess failure code: %+v %v", result, err)
 	}
 	data, _ := os.ReadFile(filepath.Join(root, "multi-agent-orchestrator", "agentmeeting.md"))
 	if !strings.Contains(string(data), "| a1 | backend | BLOCKED |") {

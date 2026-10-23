@@ -162,6 +162,9 @@ func matchingTask(s *state.Snapshot, in ResultInput) (state.Task, error) {
 	if !ok || t.Status != "ASSIGNED" || t.Token != in.Token || t.SessionID != in.SessionID || t.AssignmentGeneration != in.AssignmentGeneration || t.Worktree != in.Worktree {
 		return t, errors.New("stale or unauthorized validated result")
 	}
+	if err := s.CheckWorkerResult(t, time.Now().UTC()); err != nil {
+		return t, err
+	}
 	return t, nil
 }
 func resultStore(workspace string) (string, *state.Store, error) {

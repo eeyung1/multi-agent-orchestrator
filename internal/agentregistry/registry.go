@@ -37,24 +37,7 @@ type Policy struct{ StaleAfter time.Duration }
 
 // Ref is a fencing reference, not an authentication credential. Generation is
 // Go-issued enrollment identity, never scheduler AssignmentGeneration.
-type Ref struct {
-	AgentID    agentprotocol.AgentID   `json:"agent_id"`
-	SessionID  agentprotocol.SessionID `json:"session_id"`
-	Generation Generation              `json:"session_generation"`
-}
-
-func (ref Ref) validate() error {
-	if err := ref.AgentID.Validate(); err != nil {
-		return err
-	}
-	if err := ref.SessionID.Validate(); err != nil {
-		return err
-	}
-	if ref.Generation == 0 {
-		return errors.New("registry session generation is required")
-	}
-	return nil
-}
+type Ref = state.AgentRef
 
 // Enrollment cannot select its issued generation or assigned role. Supersedes
 // is only a compare-and-swap precondition using the previously issued reference.
@@ -156,6 +139,10 @@ func enrolled(s state.Snapshot) bool {
 // committed even when the requested action is subsequently fenced. A rejected
 // action itself never mutates state. Reads only write when expiration is due.
 func (r *Registry) transact(operation string, fn func(*state.AgentRegistryState, time.Time) (bool, error)) error {
+	return r.transactSnapshot(operation, func(s *state.Snapshot, now time.Time) (bool, error) { return fn(s.AgentRegistry, now) })
+}
+
+func (r *Registry) transactSnapshot(operation string, fn func(*state.Snapshot, time.Time) (bool, error)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var actionErr error
@@ -184,7 +171,7 @@ func (r *Registry) transact(operation string, fn func(*state.AgentRegistryState,
 			}
 		}
 		invalidated := invalidatePlanners(data)
-		changed, e := fn(data, now)
+		changed, e := fn(s, now)
 		changed = invalidatePlanners(data) || changed
 		actionErr = e
 		if expired || invalidated || changed {
@@ -229,7 +216,7 @@ func (r *Registry) Enroll(request Enrollment) (View, error) {
 		return View{}, err
 	}
 	if request.Supersedes != nil {
-		if err := request.Supersedes.validate(); err != nil {
+		if err := request.Supersedes.Validate(); err != nil {
 			return View{}, err
 		}
 	}
@@ -278,7 +265,7 @@ func (r *Registry) Enroll(request Enrollment) (View, error) {
 }
 
 func (r *Registry) Heartbeat(ref Ref) error {
-	if err := ref.validate(); err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
 	return r.transact("heartbeat", func(data *state.AgentRegistryState, now time.Time) (bool, error) {
@@ -297,7 +284,7 @@ func (r *Registry) LivenessThreshold() time.Duration { return r.policy.StaleAfte
 
 // Check fences a connection observation without refreshing liveness or authority.
 func (r *Registry) Check(ref Ref) error {
-	if err := ref.validate(); err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
 	return r.transact("check", func(data *state.AgentRegistryState, _ time.Time) (bool, error) {
@@ -309,7 +296,7 @@ func (r *Registry) Check(ref Ref) error {
 // Disconnect is idempotent for the exact current incarnation. Superseded refs
 // remain fenced; a delayed connection close cannot disconnect a replacement.
 func (r *Registry) Disconnect(ref Ref, reason string) error {
-	if err := ref.validate(); err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
 	if err := state.RegistryDecision(reason); err != nil {
@@ -410,7 +397,7 @@ func (r *Registry) AssignRole(ref Ref, role agentprotocol.Role, decision string)
 func (r *Registry) ClearRole(ref Ref, decision string) error { return r.setRole(ref, "", decision) }
 
 func (r *Registry) setRole(ref Ref, role agentprotocol.Role, decision string) error {
-	if err := ref.validate(); err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
 	if err := state.RegistryDecision(decision); err != nil {
@@ -439,7 +426,7 @@ func (r *Registry) setRole(ref Ref, role agentprotocol.Role, decision string) er
 // Register updates advertised facts only. It cannot change identity/incarnation,
 // assign a role, refresh liveness, or withdraw an already-assigned role.
 func (r *Registry) Register(ref Ref, identity agentprotocol.Identity) error {
-	if err := ref.validate(); err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
 	if err := identity.Validate(); err != nil {
@@ -466,13 +453,22 @@ func (r *Registry) Register(ref Ref, identity agentprotocol.Identity) error {
 }
 
 func (r *Registry) Transition(ref Ref, next Status, reason string) error {
-	if err := ref.validate(); err != nil {
+	if err := ref.Validate(); err != nil {
 		return err
 	}
 	if err := state.RegistryDecision(reason); err != nil {
 		return err
 	}
-	return r.transact("transition", func(data *state.AgentRegistryState, now time.Time) (bool, error) {
+	return r.transactSnapshot("transition", func(snapshot *state.Snapshot, now time.Time) (bool, error) {
+		data := snapshot.AgentRegistry
+		if next == Ready {
+			for _, task := range snapshot.Tasks {
+				d := task.WorkerDispatch
+				if task.Status == "ASSIGNED" && d != nil && d.SessionID == ref.SessionID && d.Incarnation == ref.Generation {
+					return false, errors.New("scheduler still owns worker reservation")
+				}
+			}
+		}
 		session, err := verify(data, ref, true)
 		if err != nil {
 			return false, err

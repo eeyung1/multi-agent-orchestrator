@@ -87,6 +87,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) (resul
 	workerIDs := flags.String("workers", "", "comma-separated built-in worker providers")
 	maxWorkers := flags.Int("max-workers", 0, "maximum concurrent workers (defaults to trusted policy)")
 	list := flags.Bool("list-providers", false, "list installed compatible adapters without running them")
+	enrolledWorkerSocket := flags.String("enrolled-worker-socket", "", "host private local enrolled worker attachment; trusted enrolled_capabilities policy required")
 	enrolledSocket := flags.String("enrolled-planner-socket", "", "host private local attachment and explicitly select an enrolled Planner instead of a managed provider")
 	registryStale := flags.Duration("registry-stale-after", 90*time.Second, "registry liveness policy; must match on reopen")
 	planningTimeout := flags.Duration("planning-timeout", 5*time.Minute, "maximum enrolled Planner response duration")
@@ -371,6 +372,18 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) (resul
 		}
 	}
 	fmt.Fprintln(out, "ORCHESTRATOR is scheduling eligible work and collecting evidence. Existing assignments will not be relaunched.")
+	if len(c.EnrolledCapabilities) > 0 {
+		if enrolled != nil {
+			c.Runtime = &controller.EnrolledWorkers{Registry: enrolled.Registry, Server: enrolled.Server}
+		}
+		cleanup, err := prepareEnrolledWorkers(ctx, reader, out, primary, *enrolledWorkerSocket, *registryStale, &c)
+		if err != nil {
+			return err
+		}
+		defer func() { result = errors.Join(result, cleanup()) }()
+	} else if *enrolledWorkerSocket != "" {
+		return errors.New("configure explicit enrolled_capabilities before worker attachment")
+	}
 	report, err := controller.Run(ctx, primary, objectiveID, c)
 	if err != nil {
 		return err
