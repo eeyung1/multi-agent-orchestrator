@@ -207,7 +207,7 @@ generation failures are never retried. Acceptance expiry, disconnect or executio
 cancellation cancels and joins pending report persistence. No lock is stolen and
 no ownership is inferred from a successful socket write.
 
-Follow [normal authorized recovery](../setup.md#recover-a-blocked-planner-assignment)
+Follow [normal authorized recovery](../advanced-setup.md#recover-a-blocked-planner-assignment)
 rather than editing state/ledgers, deleting claims, changing tokens or removing
 the old worktree. Review the preserved work first and ensure its external writers
 are stopped. Recovery archives dispatch identity with the old assignment; a retry
