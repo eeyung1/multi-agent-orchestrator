@@ -1,0 +1,4 @@
+# Optional dependency for the real Google Antigravity SDK bridge.
+# Install in a dedicated virtual environment:
+# python -m pip install -r integrations/antigravity/requirements.txt
+google-antigravity
