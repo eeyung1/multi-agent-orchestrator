@@ -1,4 +1,4 @@
-# Agent protocol, registry, transport and local attachment: Phases 1–6
+# Agent protocol, registry, transport, attachment and operations: Phases 1–7
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 defines the product goal and roadmap. Phase 1 implements only the provider-neutral
@@ -15,6 +15,15 @@ stream framing. It has no authority handlers. Managed adapter integration remain
 future work; see [the transport contract](agent-transport.md).
 Phase 4 adds a separate local admission/session handler and Unix listener; see
 [local attachment](agent-attachment.md). Existing managed dispatch is unchanged.
+
+Phase 7 adds a separate local [operational projection](operations.md), versioned
+`orchestrator-operations/v1`. This is an output contract, not an agent wire version,
+role grant, or assignment protocol. It reads schema 4 without initialization,
+migration, expiry or ownership writes. No V1–V4 message behavior, authority schema,
+transport, or fencing semantics changes. Public status/inspection omits claim
+credentials, invitation proofs, environment/configuration secrets and raw validator
+output. Progress remains an explicitly labeled agent report; Go state and human
+decisions remain distinguishable.
 
 ## Version and identity
 

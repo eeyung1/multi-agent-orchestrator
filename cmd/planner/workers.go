@@ -14,6 +14,7 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentregistry"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/controller"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/operations"
 )
 
 // Minimal trusted Phase 6 console. Role assignment is a separate explicit human
@@ -47,7 +48,7 @@ func prepareEnrolledWorkers(ctx context.Context, in *bufio.Reader, out io.Writer
 		cleanup = func() error { cancel(); return errors.Join(l.Close(), <-done) }
 		c.Runtime = &controller.EnrolledWorkers{Registry: r, Server: s}
 	}
-	fmt.Fprintln(out, "Enrolled worker listener ready. Commands: invite <JSON>, workers, authorize <number>, invitations, revoke <id>, run, cancel. Invitations grant no role.")
+	fmt.Fprintln(out, "Enrolled worker listener ready. Commands: invite <JSON>, workers, authorize <number>, invitations, revoke <id>, status [--json], inspect-agent, inspect-task, run, cancel. Invitations grant no role.")
 	var candidates []agentregistry.View
 	for {
 		line, err := ask(in, out, "Worker enrollment: ")
@@ -58,6 +59,12 @@ func prepareEnrolledWorkers(ctx context.Context, in *bufio.Reader, out io.Writer
 		if err := ctx.Err(); err != nil {
 			_ = cleanup()
 			return nil, err
+		}
+		if handled, err := operations.Console(ctx, workspace, line, out, operations.Options{Connected: c.Runtime.Server.Connected, MaxWorkers: &c.MaxWorkers, ConfigurationSource: "owning_host_policy"}); handled {
+			if err != nil {
+				fmt.Fprintln(out, "Inspection rejected:", err)
+			}
+			continue
 		}
 		cmd, data, _ := strings.Cut(line, " ")
 		switch cmd {

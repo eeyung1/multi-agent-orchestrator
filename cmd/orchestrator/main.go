@@ -5,24 +5,27 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/activation"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/completion"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/review"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
 	runflow "github.com/eeyung1/multi-agent-orchestrator/internal/run"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/scheduler"
 	workflowrun "github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/worktree"
 )
 
 func main() {
+	if dispatchOperations() {
+		return
+	}
 	var workspace, agent, role, session, feature, scope, token, state, nextSession, base, worktreePath, validateProgram, agentProgram, planFile, completedTasks, objectiveID, taskID, resultBranch, validationEvidence, reviewDecision, reviewActor string
 	var validateArgs, agentArgs stringList
 	var heartbeat, release, createWorktree, start, complete, execute, fullRun, preflight, enroll, acquireNext, collectResult, reviewPackage, reconcileLegacy, migrateLegacy, acknowledgeLegacy bool
@@ -78,106 +81,186 @@ func main() {
 	flag.Parse()
 
 	primary, err := filepath.Abs(workspace)
-	if err != nil { fail(err) }
+	if err != nil {
+		fail(err)
+	}
 
 	if reconcileLegacy {
-		r,err:=enrollment.Reconcile(workspace);if err!=nil{fail(err)};b,_:=json.MarshalIndent(r,"","  ");fmt.Println(string(b));return
+		r, err := enrollment.Reconcile(workspace)
+		if err != nil {
+			fail(err)
+		}
+		b, _ := json.MarshalIndent(r, "", "  ")
+		fmt.Println(string(b))
+		return
 	}
 	if migrateLegacy {
-		r,err:=enrollment.Migrate(workspace,enrollmentProvenance,acknowledgeLegacy);if err!=nil{fail(err)};b,_:=json.MarshalIndent(r,"","  ");fmt.Println(string(b));return
+		r, err := enrollment.Migrate(workspace, enrollmentProvenance, acknowledgeLegacy)
+		if err != nil {
+			fail(err)
+		}
+		b, _ := json.MarshalIndent(r, "", "  ")
+		fmt.Println(string(b))
+		return
 	}
 
 	if collectResult {
-		r,err:=review.Collect(review.ResultInput{Workspace:workspace,ObjectiveID:objectiveID,TaskID:taskID,SessionID:session,Token:token,Branch:resultBranch,Worktree:worktreePath,Validation:validationEvidence,AssignmentGeneration:assignmentGeneration,Artifacts:artifacts,Blockers:blockers,Limitations:limitations});if err!=nil{fail(err)}
-		b,_:=json.MarshalIndent(r,"","  ");fmt.Println(string(b));return
+		r, err := review.Collect(review.ResultInput{Workspace: workspace, ObjectiveID: objectiveID, TaskID: taskID, SessionID: session, Token: token, Branch: resultBranch, Worktree: worktreePath, Validation: validationEvidence, AssignmentGeneration: assignmentGeneration, Artifacts: artifacts, Blockers: blockers, Limitations: limitations})
+		if err != nil {
+			fail(err)
+		}
+		b, _ := json.MarshalIndent(r, "", "  ")
+		fmt.Println(string(b))
+		return
 	}
 	if reviewPackage {
-		p,err:=review.Build(workspace,objectiveID);if err!=nil{fail(err)};b,_:=json.MarshalIndent(p,"","  ");fmt.Println(string(b));return
+		p, err := review.Build(workspace, objectiveID)
+		if err != nil {
+			fail(err)
+		}
+		b, _ := json.MarshalIndent(p, "", "  ")
+		fmt.Println(string(b))
+		return
 	}
-	if reviewDecision!="" {
-		if err:=review.Decide(workspace,objectiveID,reviewDecision,reviewActor);err!=nil{fail(err)};fmt.Printf("objective=%s review=%s\n",objectiveID,strings.ToUpper(reviewDecision));return
+	if reviewDecision != "" {
+		if err := review.Decide(workspace, objectiveID, reviewDecision, reviewActor); err != nil {
+			fail(err)
+		}
+		fmt.Printf("objective=%s review=%s\n", objectiveID, strings.ToUpper(reviewDecision))
+		return
 	}
 
 	if acquireNext {
-		data,err:=os.ReadFile(planFile);if err!=nil{fail(err)}
-		var plan objective.Plan;if err:=json.Unmarshal(data,&plan);err!=nil{fail(err)}
-		done:=map[string]bool{};for _,id:=range strings.Split(completedTasks,","){if id=strings.TrimSpace(id);id!=""{done[id]=true}}
-		result,err:=scheduler.Acquire(scheduler.Request{Workspace:workspace,Agent:agent,Role:role,Base:base,Plan:plan,Completed:done});if err!=nil{fail(err)}
-		out,err:=json.MarshalIndent(result,"","  ");if err!=nil{fail(err)};fmt.Println(string(out));return
+		data, err := os.ReadFile(planFile)
+		if err != nil {
+			fail(err)
+		}
+		var plan objective.Plan
+		if err := json.Unmarshal(data, &plan); err != nil {
+			fail(err)
+		}
+		done := map[string]bool{}
+		for _, id := range strings.Split(completedTasks, ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				done[id] = true
+			}
+		}
+		result, err := scheduler.Acquire(scheduler.Request{Workspace: workspace, Agent: agent, Role: role, Base: base, Plan: plan, Completed: done})
+		if err != nil {
+			fail(err)
+		}
+		out, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			fail(err)
+		}
+		fmt.Println(string(out))
+		return
 	}
 
 	if preflight {
 		report, err := enrollment.Preflight(workspace)
-		if err != nil { fail(err) }
+		if err != nil {
+			fail(err)
+		}
 		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil { fail(err) }
+		if err != nil {
+			fail(err)
+		}
 		fmt.Println(string(data))
 		return
 	}
 	if enroll {
 		report, err := enrollment.Enroll(workspace, enrollment.Disposition(enrollmentDisposition), enrollmentProvenance)
-		if err != nil { fail(err) }
+		if err != nil {
+			fail(err)
+		}
 		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil { fail(err) }
+		if err != nil {
+			fail(err)
+		}
 		fmt.Println(string(data))
 		return
 	}
 
 	if fullRun {
-		result,err:=runflow.Run(runflow.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base,AgentCommand:execution.Command{Program:agentProgram,Args:agentArgs},Validate:execution.Command{Program:validateProgram,Args:validateArgs},Timeout:timeout})
-		if err!=nil { fail(err) }
-		fmt.Printf("agent=%s state=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Branch,result.Worktree)
+		result, err := runflow.Run(runflow.Request{Workspace: workspace, Agent: agent, Role: role, Feature: feature, Scope: scope, Token: token, Base: base, AgentCommand: execution.Command{Program: agentProgram, Args: agentArgs}, Validate: execution.Command{Program: validateProgram, Args: validateArgs}, Timeout: timeout})
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("agent=%s state=%s branch=%s worktree=%s\n", result.SessionID, result.State, result.Branch, result.Worktree)
 		return
 	}
 
 	if execute {
-		result,err:=execution.Run(execution.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Command:execution.Command{Program:agentProgram,Args:agentArgs},Timeout:timeout})
-		if err!=nil { fail(err) }
-		fmt.Printf("exit=%d output=%s\n",result.ExitCode,result.Output)
+		result, err := execution.Run(execution.Request{Primary: primary, Worktree: worktreePath, SessionID: session, Command: execution.Command{Program: agentProgram, Args: agentArgs}, Timeout: timeout})
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("exit=%d output=%s\n", result.ExitCode, result.Output)
 		return
 	}
 
 	if complete {
-		result,err:=completion.Complete(completion.Request{Primary:primary,Worktree:worktreePath,SessionID:session,Token:token,Feature:feature,Validate:execution.Command{Program:validateProgram,Args:validateArgs}})
-		if err!=nil { fail(err) }
-		fmt.Printf("state=%s validation=%s\n",result.State,result.Output)
+		result, err := completion.Complete(completion.Request{Primary: primary, Worktree: worktreePath, SessionID: session, Token: token, Feature: feature, Validate: execution.Command{Program: validateProgram, Args: validateArgs}})
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("state=%s validation=%s\n", result.State, result.Output)
 		return
 	}
 
 	if start {
-		result,err:=workflowrun.Start(workflowrun.Request{Workspace:workspace,Agent:agent,Role:role,Feature:feature,Scope:scope,Token:token,Base:base})
-		if err!=nil { fail(err) }
-		fmt.Printf("agent=%s state=%s claim=%s branch=%s worktree=%s\n",result.SessionID,result.State,result.Claim,result.Branch,result.Worktree)
+		result, err := workflowrun.Start(workflowrun.Request{Workspace: workspace, Agent: agent, Role: role, Feature: feature, Scope: scope, Token: token, Base: base})
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("agent=%s state=%s claim=%s branch=%s worktree=%s\n", result.SessionID, result.State, result.Claim, result.Branch, result.Worktree)
 		return
 	}
 
 	if createWorktree {
-		result,err:=worktree.Create(primary,feature,base); if err!=nil { fail(err) }
-		fmt.Printf("branch=%s worktree=%s\n",result.Branch,result.Path); return
+		result, err := worktree.Create(primary, feature, base)
+		if err != nil {
+			fail(err)
+		}
+		fmt.Printf("branch=%s worktree=%s\n", result.Branch, result.Path)
+		return
 	}
 
 	if session != "" {
 		if release {
-			if err:=coordination.ReleaseClaim(primary,session,token); err!=nil { fail(err) }
-			fmt.Println("claim released"); return
+			if err := coordination.ReleaseClaim(primary, session, token); err != nil {
+				fail(err)
+			}
+			fmt.Println("claim released")
+			return
 		}
 		if nextSession != "" {
-			if err:=coordination.Handoff(primary,session,token,nextSession); err!=nil { fail(err) }
-			fmt.Printf("handoff=%s\n",nextSession); return
+			if err := coordination.Handoff(primary, session, token, nextSession); err != nil {
+				fail(err)
+			}
+			fmt.Printf("handoff=%s\n", nextSession)
+			return
 		}
 		if heartbeat {
-			if err:=coordination.Heartbeat(primary,session); err!=nil { fail(err) }
+			if err := coordination.Heartbeat(primary, session); err != nil {
+				fail(err)
+			}
 			fmt.Println("heartbeat refreshed")
 			return
 		}
 		if state != "" {
-			if err:=coordination.Transition(primary,session,state); err!=nil { fail(err) }
-			fmt.Printf("state=%s\n",state)
+			if err := coordination.Transition(primary, session, state); err != nil {
+				fail(err)
+			}
+			fmt.Printf("state=%s\n", state)
 			return
 		}
 		if feature != "" || scope != "" || token != "" {
-			if err:=coordination.ClaimScope(primary,coordination.Claim{SessionID:session,Feature:feature,Scope:scope,Token:token}); err!=nil { fail(err) }
-			fmt.Printf("claim=%s scope=%s\n",token,scope)
+			if err := coordination.ClaimScope(primary, coordination.Claim{SessionID: session, Feature: feature, Scope: scope, Token: token}); err != nil {
+				fail(err)
+			}
+			fmt.Printf("claim=%s scope=%s\n", token, scope)
 			return
 		}
 	}
@@ -187,15 +270,18 @@ func main() {
 		os.Exit(2)
 	}
 	result, err := activation.Activate(workspace, agent, role)
-	if err != nil { fail(err) }
+	if err != nil {
+		fail(err)
+	}
 	fmt.Printf("agent=%s state=%s coordination=%s\n", result.SessionID, result.State, result.CoordinationDir)
 }
 
 func fail(err error) {
-	fmt.Fprintln(os.Stderr, "orchestrator:",err)
+	fmt.Fprintln(os.Stderr, "orchestrator:", err)
 	os.Exit(1)
 }
 
 type stringList []string
-func (s *stringList) String() string{return fmt.Sprint([]string(*s))}
-func (s *stringList) Set(v string) error{*s=append(*s,v);return nil}
+
+func (s *stringList) String() string     { return fmt.Sprint([]string(*s)) }
+func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }

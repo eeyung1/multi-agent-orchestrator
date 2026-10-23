@@ -15,6 +15,7 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentattachment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentregistry"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/operations"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/strictjson"
 )
@@ -54,7 +55,7 @@ func selectEnrolled(ctx context.Context, in *bufio.Reader, out io.Writer, worksp
 			result = errors.Join(result, cleanup())
 		}
 	}()
-	fmt.Fprintln(out, "Enrolled Planner listener ready. Commands: invite <JSON>, invitations, revoke <id>, candidates, select <number>, cancel. Managed fallback: restart without --enrolled-planner-socket.")
+	fmt.Fprintln(out, "Enrolled Planner listener ready. Commands: invite <JSON>, invitations, revoke <id>, candidates, select <number>, status [--json], inspect-agent, inspect-task, cancel. Managed fallback: restart without --enrolled-planner-socket.")
 	var candidates []agentregistry.View
 	for {
 		line, err := ask(in, out, "Planner enrollment/selection: ")
@@ -63,6 +64,12 @@ func selectEnrolled(ctx context.Context, in *bufio.Reader, out io.Writer, worksp
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
+		}
+		if handled, err := operations.Console(ctx, workspace, line, out, operations.Options{Connected: s.Connected}); handled {
+			if err != nil {
+				fmt.Fprintln(out, "Inspection rejected:", err)
+			}
+			continue
 		}
 		command, data, _ := strings.Cut(line, " ")
 		switch command {

@@ -1,5 +1,13 @@
 # Enrolled workers: Phase 6
 
+Phase 7 [local operations](operations.md) adds read-only human/JSON status and
+watch, agent/task inspection, concurrency visibility, attention and the existing
+generation-fenced recovery flow. The Worker console accepts `status [--json]`,
+`inspect-agent --agent ID` and `inspect-task --objective ID --task ID`. It can show
+host-local route observations and configured concurrency; standalone views label
+connectivity and unavailable policy explicitly. No status view grants ownership,
+returns private claim tokens, or changes these Phase 6 dispatch semantics.
+
 Compatible independently started LOCAL clients/bridges can now receive coding
 assignments through the same Go scheduler used by managed workers. Three
 independent V4 clients can execute distinct eligible tasks simultaneously. Provider
@@ -235,8 +243,8 @@ local code. Recovery requires human review/quiescence and a fresh isolated attem
 Local filesystem locking is not distributed multi-host consensus.
 
 No public/remote networking, universal vendor bridges, automatic merge/deployment,
-full operational dashboard or other Phase 7 UX is supplied. The minimal console
-only supports the authorization needed for this phase. Real-world heterogeneous
+graphical operational dashboard is supplied. Phase 7 adds the local text/JSON
+operator layer described above. Real-world heterogeneous
 AI-product acceptance remains Phase 8; the regression acceptance uses three
 independent protocol clients with different arbitrary runtime metadata and a
 barrier proving simultaneous in-flight execution through actual local IPC.

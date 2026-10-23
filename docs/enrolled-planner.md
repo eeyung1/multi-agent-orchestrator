@@ -1,5 +1,12 @@
 # Human-selected enrolled Planner: Phase 5
 
+Phase 7 [operations](operations.md) can inspect the selected AgentID/SessionID/
+incarnation, binding/run/request identity, current request status, replacement
+history, liveness and attention without executing or selecting a Planner. The
+trusted console accepts `status [--json]` and agent/task inspection commands.
+Selection/replacement still uses the existing explicit host workflow below; a
+separate status process cannot inherit or reconnect its private transport.
+
 Choose either a managed Planner (the existing default) or an independently
 started compatible local Planner bridge. Both return the same structured
 proposal contract. Go remains the coordination authority; human plan, policy,

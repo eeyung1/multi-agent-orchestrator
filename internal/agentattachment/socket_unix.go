@@ -42,14 +42,15 @@ func privateParent(path string, create bool) error {
 			return ErrSocket
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || (stat.Uid != 0 && stat.Uid != uint32(os.Geteuid())) {
+		isStickyRoot := (stat.Uid == 0 || stat.Uid == 65534) && info.Mode()&os.ModeSticky != 0
+		if !ok || (!isStickyRoot && stat.Uid != uint32(os.Geteuid())) {
 			return ErrSocket
 		}
 		if current == parent {
 			if stat.Uid != uint32(os.Geteuid()) || info.Mode().Perm() != 0700 {
 				return ErrSocket
 			}
-		} else if info.Mode().Perm()&0022 != 0 && !(stat.Uid == 0 && info.Mode()&os.ModeSticky != 0) {
+		} else if info.Mode().Perm()&0022 != 0 && !isStickyRoot {
 			return ErrSocket
 		}
 	}
