@@ -122,3 +122,49 @@ func TestAuthorizeRecoveryRejectsNonBlockedTask(t *testing.T) {
 		t.Fatal("expected ASSIGNED task recovery rejection")
 	}
 }
+
+func TestEncodeDefinitionPreservesCallerTaskOrder(t *testing.T) {
+	tasks := []objective.Task{
+		{ID: "task-z", Feature: "z", Scope: "backend/z"},
+		{ID: "task-m", Feature: "m", Scope: "backend/m"},
+		{ID: "task-a", Feature: "a", Scope: "backend/a"},
+	}
+	p := objective.Plan{
+		ID:        "test-order-preservation",
+		Objective: "Demonstrate non-mutating plan encoding",
+		Tasks:     tasks,
+	}
+
+	initialIDs := make([]string, len(p.Tasks))
+	for i, task := range p.Tasks {
+		initialIDs[i] = task.ID
+	}
+
+	encoded := EncodeDefinition(p)
+	if len(encoded) == 0 {
+		t.Fatal("expected non-empty encoded definition")
+	}
+
+	// Verify caller's slice was not mutated in place
+	for i, task := range p.Tasks {
+		if task.ID != initialIDs[i] {
+			t.Fatalf("task %d was mutated in caller slice: expected %s, got %s", i, initialIDs[i], task.ID)
+		}
+	}
+
+	// Verify determinism: plan with tasks in different order produces identical digest
+	pReverse := objective.Plan{
+		ID:        "test-order-preservation",
+		Objective: "Demonstrate non-mutating plan encoding",
+		Tasks: []objective.Task{
+			{ID: "task-a", Feature: "a", Scope: "backend/a"},
+			{ID: "task-m", Feature: "m", Scope: "backend/m"},
+			{ID: "task-z", Feature: "z", Scope: "backend/z"},
+		},
+	}
+	digest1 := PlanDigest(p)
+	digest2 := PlanDigest(pReverse)
+	if digest1 != digest2 {
+		t.Fatalf("PlanDigest must be deterministic regardless of input order: %s != %s", digest1, digest2)
+	}
+}

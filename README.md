@@ -9,12 +9,12 @@ determine participation; provider identity does not grant authority.
 
 **Currently implemented:** authoritative local Go orchestration with configured
 managed workers, plus invitation-based Unix-local attachment for compatible
-independently started clients/bridges, and human selection/execution of an enrolled
-Planner, and capability-matched dispatch to heterogeneous enrolled workers with
-simultaneous independent execution, and local operational status/inspection with
-safe existing recovery controls. **In development:** graphical UX and real-product
-bridge acceptance. Local attachment alone does not grant execution
-or coordination authority.
+independently started clients/bridges, human selection/execution of an enrolled
+Planner, capability-matched dispatch to heterogeneous enrolled workers with
+simultaneous independent execution across isolated Git worktrees, local operational
+status/inspection, and verified multi-process real-world acceptance with recovery.
+**In development:** graphical UX and external product bridge adapters. Local attachment
+alone does not grant execution or coordination authority.
 
 > **New user?** Start with [setup.md](setup.md) for managed workflows. For the separate local attachment foundation, see [agent-attachment.md](docs/agent-attachment.md). The roadmap below distinguishes shipped foundations from future execution features.
 
@@ -94,6 +94,16 @@ Managed definitions take priority for a shared capability; remaining enrolled
 candidates are selected by ascending Go-issued incarnation. Disconnects and failed
 execution preserve ownership/evidence for human-authorized recovery. See
 [enrolled worker configuration, lifecycle and limitations](docs/enrolled-workers.md).
+
+Phase 7 adds provider-neutral local operational visibility and trusted inspection commands
+(`status`, `status --json`, `inspect-agent`, `inspect-task`) projecting existing Go authority
+without creating a second control plane. See [local operations](docs/operations.md).
+
+Phase 8 demonstrates real-world acceptance with multiple heterogeneous, independently
+implemented agent runtimes (Python 3 and Node.js standard libraries) executing concurrent
+tasks in separate, isolated Git worktrees under authoritative Go control, with live operational
+status visibility, fault recovery, generation fencing, and human review gates. See
+[acceptance documentation](docs/acceptance.md).
 
 ### Start the managed Planner workflow
 
@@ -266,13 +276,12 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 ## Universal Agent Enrollment & Transport Protocol
 
 **Roadmap / in development.** Phase 1's wire/domain model, Phase 2's internal
-registry/liveness foundation, Phase 3's transport library, and Phase 4's local
-attachment/session lifecycle and Phase 5's enrolled Planner selection/exchange
-and Phase 6 enrolled-worker dispatch and Phase 7 local operational views/controls
-are implemented. Phase 8 real-product acceptance remains future work. This
-milestone extends the existing control-plane
-foundations with dynamic agent admission and a common logical contract. The
-following complete lifecycle remains the target; enrolled Planner communication
+registry/liveness foundation, Phase 3's transport library, Phase 4's local
+attachment/session lifecycle, Phase 5's enrolled Planner selection/exchange,
+Phase 6 enrolled-worker dispatch, Phase 7 local operational views/controls, and
+Phase 8 real-world acceptance are implemented. This milestone extends the existing
+control-plane foundations with dynamic agent admission and a common logical contract.
+The following complete lifecycle remains the target; enrolled Planner communication
 and enrolled-worker task execution are implemented locally; discovery and remote
 transports remain future work.
 
@@ -411,14 +420,15 @@ liveness, and host-only connection observations. Claims and bindings retain thei
 existing authority. See [operations.md](docs/operations.md). Graphical dashboards,
 public hosting and remote control are not supplied.
 
-### Phase 8 — Real-world acceptance
+### Phase 8 — Real-world acceptance (Shipped)
 
-Demonstrate one objective with one Planner and at least two different worker
-agent implementations. Acceptance must show simultaneous independent execution,
-separate isolated worktrees, validation/result collection, and human review,
-without manual coordination-state edits. Preserve evidence of actual overlap
-and exact validated results; unit tests or two sequential workers alone do not
-establish this milestone's acceptance.
+Demonstrates one objective with one enrolled Planner and at least two genuinely
+different worker agent implementations (Python 3 and Node.js standard libraries).
+Proves simultaneous independent execution across separate isolated worktrees,
+validation, result collection, and human review without manual coordination-state
+edits. Verifies live operational status inspection (`status --json`), abrupt disconnect
+recovery, monotonic assignment generation fencing, and human review gates. See
+[acceptance documentation](docs/acceptance.md).
 
 ## Non-negotiable invariants
 

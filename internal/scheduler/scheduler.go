@@ -530,7 +530,9 @@ func Restore(workspace, objectiveID string) (objective.Plan, state.Objective, er
 
 // EncodeDefinition is shared by admission and restart verification.
 func EncodeDefinition(p objective.Plan) []byte {
-	sort.Slice(p.Tasks, func(i, j int) bool { return p.Tasks[i].ID < p.Tasks[j].ID })
+	tasks := append([]objective.Task(nil), p.Tasks...)
+	sort.Slice(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	p.Tasks = tasks
 	b, _ := json.Marshal(p)
 	return b
 }
