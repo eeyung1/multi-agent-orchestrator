@@ -16,7 +16,7 @@ You need:
 - At least one supported coding-agent CLI installed and authenticated: **Codex, Claude Code, or Gemini CLI**.
 - Permission to run the provider and its model. Provider use may incur costs under your account.
 
-The orchestrator does not install providers, request credentials on their behalf, or guarantee that a detected CLI is authenticated. Antigravity is a planned integration, not a built-in provider in the current quick-start workflow.
+The orchestrator does not install providers, request credentials on their behalf, or guarantee that a detected CLI is authenticated. Antigravity is not a built-in managed CLI provider. An SDK-backed bridge is being introduced at [integrations/antigravity](integrations/antigravity/README.md); its real model call still requires local credentials and live acceptance testing.
 
 ## 2. Clone the orchestrator
 
