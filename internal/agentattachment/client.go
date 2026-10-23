@@ -20,9 +20,9 @@ func (s *Server) handleStream(ctx context.Context, conn io.ReadWriteCloser) erro
 	return s.Handle(ctx, t)
 }
 
-// Client moves lifecycle and Planner messages without reasoning, task execution
-// or role authority. Lifecycle RPCs serialize; a single ReceivePlanning consumer
-// may operate concurrently with Heartbeat/RespondPlanning/Close. Close joins its
+// Client moves lifecycle, Planner and worker messages without reasoning, task
+// execution or role authority. Lifecycle RPCs serialize; one consumer per request
+// mailbox may operate concurrently with heartbeat/reporting/Close. Close joins its
 // receive pump. Transport cancellation and terminal errors are not retried.
 type Client struct {
 	transport agenttransport.Transport
@@ -30,6 +30,7 @@ type Client struct {
 	gate      chan struct{}
 	version   agentprotocol.ProtocolVersion
 	acks      chan agentprotocol.Envelope
+	work      chan agentprotocol.WorkerMessage
 	requests  chan agentprotocol.PlanningRequest
 	done      chan struct{}
 	mu        sync.Mutex
@@ -74,7 +75,7 @@ func Attach(ctx context.Context, t agenttransport.Transport, id agentprotocol.Id
 		_ = t.Close()
 		return nil, ErrAdmission
 	}
-	c := &Client{transport: t, version: id.ProtocolVersion, acks: make(chan agentprotocol.Envelope, 1), requests: make(chan agentprotocol.PlanningRequest, 1), done: make(chan struct{}), ref: agentregistry.Ref{AgentID: id.AgentID, SessionID: id.SessionID, Generation: agentregistry.Generation(r.Enrollment.SessionGeneration)}, gate: make(chan struct{}, 1)}
+	c := &Client{work: make(chan agentprotocol.WorkerMessage, 1), transport: t, version: id.ProtocolVersion, acks: make(chan agentprotocol.Envelope, 1), requests: make(chan agentprotocol.PlanningRequest, 1), done: make(chan struct{}), ref: agentregistry.Ref{AgentID: id.AgentID, SessionID: id.SessionID, Generation: agentregistry.Generation(r.Enrollment.SessionGeneration)}, gate: make(chan struct{}, 1)}
 	go c.receive()
 	return c, nil
 }
@@ -132,6 +133,12 @@ func (c *Client) receive() {
 			case agentprotocol.SessionAcknowledgment:
 				select {
 				case c.acks <- e:
+				default:
+					err = ErrBinding
+				}
+			case agentprotocol.WorkerAssignment:
+				select {
+				case c.work <- *e.Work:
 				default:
 					err = ErrBinding
 				}

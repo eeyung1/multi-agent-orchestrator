@@ -1,14 +1,17 @@
-# Local agent attachment: Phases 4–5
+# Local agent attachment: Phases 4–6
 
 This is the local admission/liveness foundation for independently started
 compatible agents or bridges. Phase 5 adds human-selected enrolled Planner
 execution through a run-hosted listener; see [enrolled Planner operation](enrolled-planner.md).
-It does not dispatch coding tasks to enrolled workers or replace managed defaults.
+Phase 6 adds opt-in enrolled-worker dispatch through the run-hosted listener; see
+[enrolled worker operation](enrolled-workers.md). Managed defaults remain available.
 "Any compatible agent" means a runtime with a bridge/client implementing the
 universal protocol; a closed product without an integration surface cannot attach
 automatically. The included bridge is a provider-neutral liveness example, not an
 AI model or coding adapter. Its optional `--proposal-file` mode exercises the
 Planner protocol with a supplied structured fixture; it does not perform reasoning.
+`--worker-file` demonstrates bounded V4 worker file writes, acceptance, progress
+and terminal reports. It is a simulation fixture, not an AI coding implementation.
 
 ## Try two independent terminals
 
@@ -138,7 +141,9 @@ paths, reporting a cleanup error. The private parent directory is retained.
 Registry sessions persist through the existing locked atomic state writes;
 invitations and transport routing do not. Phase 5 Planner selection/request
 records do persist in that same structured state, distinct from connection routing.
-Attachment edits no Markdown ledger or scheduler task/claim ownership. Normal EOF, connection failure, idle deadline and graceful shutdown
+Admission/heartbeat/disconnect alone edits no Markdown ledger or task/claim
+ownership. Bound V4 worker reports are routed to the controller’s authoritative
+scheduler handler only while an exact dispatched assignment is active. Normal EOF, connection failure, idle deadline and graceful shutdown
 attempt exact fenced disconnection. A registry cleanup failure stops the listener
 and reports an authority/storage error for investigation. No history is reset.
 
@@ -166,9 +171,9 @@ distributed multi-host consensus. The listener exposes no TCP/public endpoint.
 
 Phase 5 human selection and bound Planner exchange are implemented through
 `cmd/planner --enrolled-planner-socket`; the standalone listener console remains
-an admission/liveness tool. Phase 6 enrolled-worker dispatch, heterogeneous enrolled
-task execution, remote/public networking, and automatic merge/deployment are not
-implemented. Existing managed providers continue through their
+an admission/liveness tool. Phase 6 adds bounded V4 worker conversations to the
+run-hosted listener with existing Go scheduler/validation authority. Remote/public
+networking and automatic merge/deployment remain unimplemented. Existing managed providers continue through their
 established adapters and guards. A compatible client may advertise PLANNER if
 invited, but that never selects it as Planner or makes it a coordination authority.
 Only explicit human selection creates a Planner binding. Human

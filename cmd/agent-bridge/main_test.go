@@ -29,8 +29,9 @@ func (w *notifiedOutput) Write(b []byte) (int, error) {
 }
 
 func TestBridgeCommandAttachesIndependentlyAndDisconnectsOnCancellation(t *testing.T) {
-	for _, planningMode := range []bool{false, true} {
-		t.Run(map[bool]string{false: "liveness", true: "planning"}[planningMode], func(t *testing.T) {
+	for _, mode := range []string{"liveness", "planning", "worker"} {
+		t.Run(mode, func(t *testing.T) {
+			planningMode := mode == "planning"
 			root := t.TempDir()
 			cmd := exec.Command("git", "init", "-b", "main")
 			cmd.Dir = root
@@ -93,6 +94,13 @@ func TestBridgeCommandAttachesIndependentlyAndDisconnectsOnCancellation(t *testi
 				}
 				args = append(args, "--proposal-file", fixture)
 			}
+			if mode == "worker" {
+				fixture := filepath.Join(dir, "worker.json")
+				if err := os.WriteFile(fixture, []byte(`{"files":{"{scope}/result.txt":"bounded bridge output\n"}}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--worker-file", fixture)
+			}
 			go func() { done <- run(ctx, args, out) }()
 			select {
 			case <-out.ready:
@@ -120,6 +128,31 @@ func TestBridgeCommandAttachesIndependentlyAndDisconnectsOnCancellation(t *testi
 					t.Fatalf("planning fixture exchange: %+v %v", proposal, err)
 				}
 			}
+			if mode == "worker" {
+				views, err := r.List()
+				if err != nil || len(views) != 1 || views[0].Session.AssignedRole != "" {
+					t.Fatal("worker fixture implicitly acquired a role", err)
+				}
+				if err := r.AssignRole(views[0].Ref(), agentprotocol.RoleWorker, "test human authorized fixture session"); err != nil {
+					t.Fatal(err)
+				}
+				worktree := t.TempDir()
+				w := agentprotocol.WorkerMessage{Correlation: agentprotocol.WorkerCorrelation{ObjectiveID: "objective", TaskID: "bounded", Generation: 1, DispatchID: "go-dispatch"}, Assignment: &agentprotocol.WorkerAssignmentData{Objective: "exercise generic bridge", Task: planning.Task{ID: "bounded", Scope: "owned", Description: "write bounded fixture", Capability: string(capability), Validation: []string{"check"}}, Worktree: worktree, Branch: "agent/fixture", Rules: "Leave uncommitted; all writers stop before reporting"}}
+				var reports []agentprotocol.MessageType
+				call, stop := context.WithTimeout(ctx, 10*time.Second)
+				defer stop()
+				terminal, err := s.Work(call, views[0].Ref(), w, 5*time.Second, func(_ context.Context, e agentprotocol.Envelope) error {
+					reports = append(reports, e.Type)
+					return nil // Routing fixture only; controller tests exercise authority.
+				})
+				if err != nil || terminal.Type != agentprotocol.WorkerResult || len(reports) != 3 || reports[0] != agentprotocol.WorkerAcceptance || reports[1] != agentprotocol.WorkerProgress || reports[2] != agentprotocol.WorkerResult {
+					t.Fatalf("worker fixture exchange: %v %v", reports, err)
+				}
+				b, err := os.ReadFile(filepath.Join(worktree, "owned", "result.txt"))
+				if err != nil || string(b) != "bounded bridge output\n" {
+					t.Fatalf("worker fixture output: %q %v", b, err)
+				}
+			}
 			cancel()
 			select {
 			case err := <-done:
@@ -134,7 +167,7 @@ func TestBridgeCommandAttachesIndependentlyAndDisconnectsOnCancellation(t *testi
 				t.Fatal(err)
 			}
 			all, err := r.List()
-			if err != nil || len(all) != 1 || all[0].Session.Status != agentregistry.Disconnected || (!planningMode && all[0].Session.AssignedRole != "") {
+			if err != nil || len(all) != 1 || all[0].Session.Status != agentregistry.Disconnected || (mode == "liveness" && all[0].Session.AssignedRole != "") {
 				t.Fatalf("bridge lifecycle: %v", err)
 			}
 		})

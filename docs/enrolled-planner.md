@@ -141,7 +141,8 @@ proposal digest while admitting tasks. A disconnect/replacement during the
 approval prompt blocks adoption. A completed response cannot authorize a second
 objective. Existing managed workers, worktrees, validators, result collection,
 consolidated runtime report and human review then run normally. This phase does
-not add a second Planner summarization RPC or dispatch work to enrolled workers.
+not add a second Planner summarization RPC. Phase 6 separately adds opt-in
+[enrolled workers](enrolled-workers.md) under the existing scheduler.
 
 ## Failure, restart and replacement
 
@@ -158,9 +159,9 @@ defaults to ninety seconds and must match an existing registry policy. Cancellat
 or timeout stops the binding and records request failure; no plan is authorized.
 
 Bindings, replacement history, latest request status/digest and adoption evidence
-persist in schema 3 `state.json` using the existing local lock/atomic write/fsync
+persist in schema 4 `state.json` using the existing local lock/atomic write/fsync
 path. Request contents, proposal contents and invitation secrets are not stored
-there. Schema 1/2 migration preserves existing authority and creates no selection.
+there. Schema 1/2/3 migration preserves existing authority and creates no selection.
 Stop older writers before upgrade. Never edit ledgers/state to repair a session.
 
 Connections and pending invitations are process-local. Restart does not replay
@@ -178,5 +179,7 @@ same-session reconnect nor live in-place CLI replacement is provided.
 
 This is local orchestration, not an OS/container sandbox or distributed lock.
 Unix permissions/invitations do not protect against hostile same-UID/root code.
-No remote/public networking, universal vendor bridges, automatic merge/deployment,
-or Phase 6 heterogeneous enrolled-worker scheduling is implemented.
+No remote/public networking, universal vendor bridges or automatic merge/deployment
+is implemented. Phase 6 enrolled-worker dispatch is available through an explicit
+capability allowlist and worker role authorization; Planner role grants no worker
+assignment authority. V4 planning-capable sessions are selectable alongside V3.

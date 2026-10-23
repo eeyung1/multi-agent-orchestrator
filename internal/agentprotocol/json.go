@@ -42,7 +42,7 @@ func Decode(data []byte, origin Origin) (Envelope, error) {
 	// V2 fields must remain unknown on the V1 wire, even when null/zero values
 	// would disappear into Go zero values. The strict decode above already
 	// rejects duplicates/unknown fields for the shared envelope model.
-	if e.ProtocolVersion != Version3 {
+	if e.ProtocolVersion != Version3 && e.ProtocolVersion != Version4 {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(data, &fields); err != nil {
 			return Envelope{}, errors.New("invalid envelope")
@@ -51,6 +51,13 @@ func Decode(data []byte, origin Origin) (Envelope, error) {
 			if strings.EqualFold(name, "planning_request") || strings.EqualFold(name, "planning_response") {
 				return Envelope{}, errors.New("Planner fields require v3")
 			}
+		}
+	}
+	if e.ProtocolVersion != Version4 {
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(data, &fields)
+		if _, ok := fields["work"]; ok {
+			return Envelope{}, errors.New("worker fields require v4")
 		}
 	}
 	if e.ProtocolVersion == Version1 {

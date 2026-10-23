@@ -1,4 +1,4 @@
-# Agent protocol, registry, transport and local attachment: Phases 1–5
+# Agent protocol, registry, transport and local attachment: Phases 1–6
 
 The [README architecture contract](../README.md#target-architecture--in-development)
 defines the product goal and roadmap. Phase 1 implements only the provider-neutral
@@ -6,7 +6,7 @@ wire/domain model in `internal/agentprotocol`. Nothing in this package connects,
 enrolls, persists, schedules, supervises, or authenticates an agent.
 
 Phase 2 adds the authoritative internal Go registry in `internal/agentregistry`,
-persisted inside structured state (now schema 3). Existing managed CLI adapters, Planner
+persisted inside structured state (now schema 4). Existing managed CLI adapters, Planner
 configuration, `controller.WorkerContext` and their operational coordination
 lifecycle remain unchanged. Receiving WorkerContext does not enroll a subprocess
 in the registry. Phase 3 adds the separate `internal/agenttransport` library for
@@ -19,8 +19,9 @@ Phase 4 adds a separate local admission/session handler and Unix listener; see
 ## Version and identity
 
 `ProtocolVersion` accepts `orchestrator-agent/v1`, `orchestrator-agent/v2`,
-and `orchestrator-agent/v3`. V1/V2 retain their existing wire behavior. Local
-attachment accepts V2 or V3; enrolled Planner interaction requires V3. Missing/unknown versions fail closed, without negotiation/downgrade.
+`orchestrator-agent/v3`, and `orchestrator-agent/v4`. Earlier versions retain
+their wire behavior. Attachment accepts V2/V3/V4; enrolled Planner interaction
+requires V3/V4, and enrolled-worker dispatch requires V4. Missing/unknown versions fail closed, without negotiation/downgrade.
 Future wire-shape changes require an explicitly supported version and compatibility
 tests; adding a provider name or capability does not require a new version.
 This namespace is separate from the existing `orchestrator/v1` structured-state
@@ -173,8 +174,8 @@ and verifies that protocol processing leaves authoritative state unchanged.
 
 The protocol model alone grants no authority. Phase 2 now provides an internal Go
 registry and Phase 4 supplies local invitation admission. There is no remote
-attachment, same-session reconnect, enrolled Planner election or capability-matching
-scheduler dispatch. Phase 3's transport library is separate
+attachment or same-session reconnect. Human Planner selection and capability-matched
+local worker dispatch are supplied by the later integration layers, not this model. Phase 3's transport library is separate
 from this pure model and performs no authoritative handling.
 Managed CLI adapters have not been replaced or silently declared protocol-enrolled.
 Future phases must preserve Go's sole authority and explicit human authorization;
@@ -209,14 +210,14 @@ claims, tasks or assignment history. This is checked on both reads and writes
 under the same state authority. Later adapter integration must deliberately bind
 these lifecycles without maintaining competing copies of the same fact.
 
-State schemas 1 and 2 are migrated to schema 3 under the existing state lock. Migration
+State schemas 1, 2 and 3 are migrated to schema 4 under the existing state lock. Migration
 preserves ownership/results/history and adds one audited authority revision; it
 does not enroll agents or create registry records. **Stop older controller
-binaries before upgrading.** Fresh older binaries reject schema 3, but already
+binaries before upgrading.** Fresh older binaries reject schema 4, but already
 running older writers cannot be retroactively upgraded. A missing registry with
 durable registry history is rejected rather than interpreted as an empty registry.
 Do not downgrade/edit state to retry. Existing provider configuration needs no
-migration and current dispatch still uses its configured adapters.
+migration. Configured managed dispatch stays compatible; enrolled dispatch is opt-in.
 
 Reads reject unknown/duplicate JSON fields, malformed identities/roles, invalid
 policy/timestamps, missing history, duplicate incarnations, broken supersession
@@ -321,8 +322,8 @@ not been changed or presented as a cross-file transaction.
 ### What remains unimplemented
 
 Phase 4 now adds Unix-local attachment and a generic bridge example. There are
-no HTTP/RPC/stdio provider bridges, remote agents, same-session reconnect, or
-scheduler dispatch to enrolled heterogeneous workers. Phase 5 adds local enrolled
+no HTTP/RPC/stdio provider bridges, remote agents or same-session reconnect.
+Phase 6 now adds local enrolled-worker dispatch; see below. Phase 5 adds local enrolled
 Planner selection and execution; see below. The local trusted console
 can list agents; there is no full connected-agent dashboard. Current
 Codex/Claude/Gemini subprocesses still use their established
@@ -344,8 +345,8 @@ The returned message remains untrusted with respect to authority: delivery is no
 enrollment, a heartbeat write, a role decision, task admission or result acceptance.
 The transport imports no registry/scheduler/provider APIs. Phase 4 now binds
 local connections to admitted AgentID/SessionID/registry incarnations through a
-separate Go handler. It rechecks current registry state; future task handling
-must also enforce existing scheduler ownership gates. Phase 3 itself introduced
+separate Go handler. It rechecks current registry state; Phase 6 task handling
+also enforces the existing scheduler ownership gates. Phase 3 itself introduced
 no admission credential or authentication flow.
 
 See [agent-transport.md](agent-transport.md) for concurrency, ordering,
@@ -451,7 +452,68 @@ Schema 3 persists bindings, historical replacements, latest request status,
 digest and adoption evidence inside existing `state.json`; it stores no invitation
 secret or request/proposal content. Locked schema 1/2 migration preserves existing
 ownership/registry data, selects no Planner and adds one audited revision. Stop
-older writers before upgrading; older binaries reject schema 3. Corrupt or missing
+older writers before upgrading; current schema 4 also retains these bindings,
+and older binaries reject it. Corrupt or missing
 binding state with durable selection history fails closed. A process restart does
 not restore transports or revive a pending request: use fresh admission and human
 selection. See [enrolled Planner operation](enrolled-planner.md).
+
+## Phase 6: V4 enrolled-worker contract
+
+`orchestrator-agent/v4` preserves V2 admission/acknowledgments and V3 Planner
+exchange while adding a `work` payload and five directional message types:
+
+| Type | Direction | Payload |
+| --- | --- | --- |
+| `worker_assignment` | Go -> exact worker | correlation + typed assignment |
+| `worker_acceptance` | worker -> Go | correlation + explicit `accepted` boolean; rejection reason required |
+| `worker_progress` | worker -> Go | correlation + bounded informational detail |
+| `worker_blocker` | worker -> Go | correlation + terminal blocker detail |
+| `worker_result` | worker -> Go | correlation + terminal implementation summary |
+
+`work.correlation` contains `objective_id`, `task_id`, `assignment_generation`
+(the existing scheduler generation), and Go-generated `dispatch_id`. Envelope
+AgentID/SessionID name the enrolled participant. The server also verifies its
+private registry incarnation. None of these identifiers is a credential or lets
+an agent choose ownership. The random dispatch ID is independent of the private
+claim token. No operational claim token, invitation secret, credentials or
+unrelated assignment identity is sent in the assignment.
+
+`work.assignment` contains objective text, the existing typed task (description,
+scope, acceptance criteria, validation names and required capability), exact
+Go-selected worktree/branch, relevant project instructions, and bounded execution
+rules. Changes are left uncommitted for Go's owned-path check and commit. A
+terminal report or rejection is a declaration that all task writers have stopped
+and relinquished write access. This is a local trust contract, not OS enforcement.
+
+Only Go sends assignments; agents cannot send role grants or assignments.
+Acceptance is required before progress/blocker/result. Duplicate acceptance,
+unknown correlation, identity switches, stale generation/session/incarnation,
+unsolicited or replayed terminal messages close the route and fail closed.
+Reserved legacy `assignment`/`progress`/`result` messages remain unsupported by
+attachment. V1/V2/V3 reject V4 fields, including `work: null`; strict JSON and the
+transport frame bound apply to every message.
+
+The attachment layer routes a single bounded pending conversation per session;
+it does not adopt tasks or results. Its trusted callback checks/updates the
+existing scheduler task dispatch under the state lock. Heartbeats continue
+through the same sole receive loop and cannot extend the execution deadline.
+Progress stores only the latest bounded detail, with an audit event; it grants
+no ownership. A blocker becomes BLOCKED only through Go's existing exact
+operational-session and structured-task blocking path.
+
+Schema 4 adds a dispatch record to `Task` and its `AssignmentHistory`: enrolled
+AgentID, SessionID, Go-issued incarnation, exact correlation, phase, latest message type and latest
+detail. Only a terminal `worker_result` may enter Go validation; a rejection or
+blocker cannot be treated as successful output. The registry retains a dispatch-history count so missing dispatch records
+fail closed. Phases are RESERVED -> SENT -> ACCEPTED -> REPORTED -> FINISHED;
+failures become FAILED. Reservation atomically sets the worker BUSY and task
+ASSIGNED in the existing state resource. Completion atomically records the Go
+result and returns the exact current live worker READY. No replacement session is
+modified. See [lifecycle, crash boundaries and recovery](enrolled-workers.md).
+
+Schemas 1/2/3 migrate under the existing lock to schema 4, preserving tasks,
+claims, results, enrolled identity and Planner evidence. Migration invents no
+worker dispatch or role assignment. Stop all older writers before upgrading;
+older binaries reject schema 4. Transports are process-local and never restored
+from durable dispatch records.

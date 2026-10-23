@@ -38,7 +38,19 @@ type Result struct {
 	Output   string
 }
 
-func Run(req Request) (Result, error) {
+func Run(req Request) (Result, error) { return run(req, nil) }
+
+// Supervise applies the same ownership, guard, timeout and operational heartbeat
+// checks to a bounded attached-agent exchange. operation must honor cancellation;
+// no subprocess is spawned. External processes are not an OS sandbox.
+func Supervise(req Request, operation func(context.Context) error) (Result, error) {
+	if operation == nil {
+		return Result{}, errors.New("supervised operation required")
+	}
+	req.Command = Command{Program: "enrolled-worker-exchange"}
+	return run(req, operation)
+}
+func run(req Request, operation func(context.Context) error) (Result, error) {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return Result{}, fmt.Errorf("session is required")
 	}
@@ -83,7 +95,15 @@ func Run(req Request) (Result, error) {
 	cmd.Stderr = &buffer
 	var runErr error
 	done := make(chan struct{})
-	go func() { runErr = cmd.Run(); cleanupProcess(cmd); close(done) }()
+	go func() {
+		if operation != nil {
+			runErr = operation(ctx)
+		} else {
+			runErr = cmd.Run()
+			cleanupProcess(cmd)
+		}
+		close(done)
+	}()
 	ticker := time.NewTicker(req.HeartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -111,6 +131,9 @@ func Run(req Request) (Result, error) {
 		}
 	}
 finished:
+	// An attached operation can race its deadline or return nil after observing
+	// cancellation. Its return value cannot turn a cancelled execution into PASS.
+	runErr = errors.Join(runErr, ctx.Err())
 	if req.Guard != nil {
 		if err := req.Guard(); err != nil {
 			return Result{ExitCode: -1, Output: buffer.String()}, fmt.Errorf("stale result rejected: %w", err)
@@ -123,7 +146,8 @@ finished:
 	exitCode := 0
 	if runErr != nil {
 		exitCode = -1
-		if ee, ok := runErr.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(runErr, &ee) {
 			exitCode = ee.ExitCode()
 		}
 	}

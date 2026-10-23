@@ -3,14 +3,16 @@ package state
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 )
 
 func writeFixture(t *testing.T, path string, snapshot Snapshot) []byte {
@@ -232,5 +234,39 @@ func TestPublicationFailureRetainsPriorState(t *testing.T) {
 	after, err := os.ReadFile(store.path)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("publication failure changed state/generation")
+	}
+}
+
+func TestV3MigrationPreservesPlannerAndTaskIdentity(t *testing.T) {
+	store, err := Open(t.TempDir(), "repo:test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before.Authority.Schema = 3
+	now := time.Now().UTC()
+	digest := strings.Repeat("a", 64)
+	identity := agentprotocol.Identity{ProtocolVersion: agentprotocol.Version3, AgentID: "planning-agent", SessionID: "planner-enrolled", Metadata: agentprotocol.Metadata{Provider: "unknown-runtime"}, Capabilities: []agentprotocol.Capability{"planning"}, SupportedRoles: []agentprotocol.Role{agentprotocol.RolePlanner}}
+	binding := PlannerBinding{RunID: "run", BindingID: "binding", AgentID: identity.AgentID, SessionID: identity.SessionID, Generation: 1, Decision: "human selection", Reason: "selected", SelectedAt: now, RequestID: "request", RequestStatus: "COMPLETE", ProposalDigest: digest, AdoptedObjective: "o"}
+	before.AgentRegistry = &AgentRegistryState{StaleAfterNS: time.Minute, ObservedAt: now, LastGeneration: 1, Sessions: map[agentprotocol.SessionID]AgentSession{identity.SessionID: {Identity: identity, Generation: 1, AssignedRole: agentprotocol.RolePlanner, RoleDecision: "human selection", Status: AgentReady, EnrolledAt: now, LastSeenAt: now, StateChangedAt: now, AdmissionDecision: "trusted admission", StateReason: "selected"}}, Planners: map[string]PlannerBinding{"run": binding}}
+	before.Objectives["o"] = Objective{ID: "o", PlannerEvidence: &PlannerEvidence{Correlation: agentprotocol.PlannerCorrelation{RunID: "run", BindingID: "binding", RequestID: "request"}, ProposalDigest: digest}}
+	before.Tasks["o::t"] = Task{ID: "t", ObjectiveID: "o", Status: "ASSIGNED", Attempt: 2, AssignmentGeneration: 17, Token: "private-claim", SessionID: "operational-session", Branch: "agent/t", Worktree: "preserved"}
+	writeFixture(t, store.path, before)
+	if _, err := store.Read(); err == nil {
+		t.Fatal("old schema accepted without explicit Open migration")
+	}
+	reopened, err := Open(store.primary, "repo:test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := reopened.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Authority.Schema != 4 || !reflect.DeepEqual(before.Tasks, after.Tasks) || !reflect.DeepEqual(before.AgentRegistry, after.AgentRegistry) || !reflect.DeepEqual(before.Objectives, after.Objectives) || after.Tasks["o::t"].WorkerDispatch != nil {
+		t.Fatal("migration changed ownership or invented dispatch")
 	}
 }

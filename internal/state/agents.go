@@ -46,12 +46,13 @@ type AgentSession struct {
 // Current session is derived from the highest generation for each AgentID; no
 // second current-session index or Markdown projection claims that authority.
 type AgentRegistryState struct {
-	PlannerHistory []PlannerBinding                         `json:"planner_history,omitempty"`
-	Planners       map[string]PlannerBinding                `json:"planners,omitempty"`
-	StaleAfterNS   time.Duration                            `json:"stale_after_ns"`
-	LastGeneration AgentSessionGeneration                   `json:"last_session_generation"`
-	ObservedAt     time.Time                                `json:"observed_at"`
-	Sessions       map[agentprotocol.SessionID]AgentSession `json:"sessions"`
+	WorkerDispatchCount uint64                                   `json:"worker_dispatch_count,omitempty"`
+	PlannerHistory      []PlannerBinding                         `json:"planner_history,omitempty"`
+	Planners            map[string]PlannerBinding                `json:"planners,omitempty"`
+	StaleAfterNS        time.Duration                            `json:"stale_after_ns"`
+	LastGeneration      AgentSessionGeneration                   `json:"last_session_generation"`
+	ObservedAt          time.Time                                `json:"observed_at"`
+	Sessions            map[agentprotocol.SessionID]AgentSession `json:"sessions"`
 }
 
 // RegistryDecision validates non-secret internal decision provenance/reasons.
@@ -68,6 +69,9 @@ func RegistryDecision(value string) error {
 }
 
 func (s Snapshot) validateAgentRegistry() error {
+	if err := s.validateWorkerDispatches(); err != nil {
+		return err
+	}
 	if err := s.validatePlannerObjectives(); err != nil {
 		return err
 	}
@@ -80,7 +84,7 @@ func (s Snapshot) validateAgentRegistry() error {
 		}
 		return nil
 	}
-	if (s.Authority.Schema != SchemaVersion && s.Authority.Schema != 2) || r.StaleAfterNS <= 0 || r.ObservedAt.IsZero() || r.Sessions == nil {
+	if (s.Authority.Schema != SchemaVersion && s.Authority.Schema != 2 && s.Authority.Schema != 3) || r.StaleAfterNS <= 0 || r.ObservedAt.IsZero() || r.Sessions == nil {
 		return errors.New("malformed agent registry header")
 	}
 	if uint64(len(r.Sessions)) != uint64(r.LastGeneration) {

@@ -73,6 +73,9 @@ func Collect(in ResultInput) (state.ResultRecord, error) {
 		if !ok {
 			return errors.New("task not found")
 		}
+		if t.WorkerDispatch != nil && in.ValidatedHead == "" {
+			return errors.New("enrolled results require exact-head validation")
+		}
 		if t.Status != "ASSIGNED" || t.Token != in.Token || t.SessionID != in.SessionID || t.AssignmentGeneration != in.AssignmentGeneration {
 			return errors.New("stale or unauthorized result")
 		}
@@ -85,10 +88,24 @@ func Collect(in ResultInput) (state.ResultRecord, error) {
 		if old, ok := s.Results[rec.ID]; ok && old.HeadSHA != rec.HeadSHA {
 			return errors.New("result generation already recorded with different head")
 		}
+		if err := s.CheckWorkerResult(t, time.Now().UTC()); err != nil {
+			return err
+		}
 		s.Results[rec.ID] = rec
 		t.ResultID = rec.ID
 		t.Status = "COMPLETE"
 		t.Token = ""
+		if t.WorkerDispatch != nil {
+			d := *t.WorkerDispatch
+			d.Phase = "FINISHED"
+			t.WorkerDispatch = &d
+			if s.CheckWorkerSession(d, time.Now().UTC(), state.AgentBusy) == nil {
+				a := s.AgentRegistry.Sessions[d.SessionID]
+				a.Status, a.StateReason, a.StateChangedAt = state.AgentReady, "worker_result_validated", time.Now().UTC()
+				s.AgentRegistry.ObservedAt = a.StateChangedAt
+				s.AgentRegistry.Sessions[d.SessionID] = a
+			}
+		}
 		s.Tasks[key] = t
 		all := true
 		ids := []string{}

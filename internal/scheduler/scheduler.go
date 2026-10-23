@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/coordination"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/enrollment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
@@ -20,12 +21,21 @@ import (
 	"github.com/eeyung1/multi-agent-orchestrator/internal/workflow"
 )
 
+type WorkerReserver interface {
+	ReserveWorker(state.AgentRef, agentprotocol.Capability, func(*state.Snapshot) error) error
+	CheckWorkerReservation(state.Snapshot, state.WorkerDispatch) error
+}
+
 type Request struct {
+	MaxWorkers                           int
+	Registry                             WorkerReserver
+	Worker                               *state.AgentRef
 	Workspace, Agent, Role, Base, TaskID string
 	Plan                                 objective.Plan
 	Completed                            map[string]bool
 }
 type Result struct {
+	WorkerDispatch                            *state.WorkerDispatch
 	Task                                      objective.Task
 	SessionID, State, Branch, Worktree, Token string
 	Attempt, AssignmentGeneration             uint64
@@ -54,9 +64,17 @@ func Acquire(req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	dispatchNonce, err := randomToken()
+	if err != nil {
+		return Result{}, err
+	}
 	var selected objective.Task
 	var attempt, generation uint64
-	err = store.Update("ORCHESTRATOR", "acquire-next", func(s *state.Snapshot) error {
+	var dispatch *state.WorkerDispatch
+	reserve := func(s *state.Snapshot) error {
+		if s.Authority.RepositoryID != id {
+			return errors.New("worker registry belongs to another repository")
+		}
 		if existing, ok := s.Objectives[req.Plan.ID]; ok && existing.AuthorizedBy != "" {
 			if existing.PlanDigest != PlanDigest(req.Plan) || len(req.Completed) > 0 {
 				return errors.New("acquisition differs from the human-authorized plan/evidence")
@@ -107,19 +125,48 @@ func Acquire(req Request) (Result, error) {
 			if st.Status != "PENDING" {
 				continue
 			}
+			if req.MaxWorkers > 0 {
+				count := 0
+				for _, t := range s.Tasks {
+					if t.ObjectiveID == req.Plan.ID && t.Status == "ASSIGNED" {
+						count++
+					}
+				}
+				if count >= req.MaxWorkers {
+					return errors.New("max_workers reservation limit reached")
+				}
+			}
 			selected = candidate
 			st.Status = "ASSIGNED"
 			st.Attempt++
 			st.AssignmentGeneration = s.Authority.Generation + 1
 			st.Token = token
 			st.BaseSHA = req.Base
+			if req.Worker != nil {
+				st.WorkerDispatch = &state.WorkerDispatch{AgentID: req.Worker.AgentID, SessionID: req.Worker.SessionID, Incarnation: req.Worker.Generation, Phase: "RESERVED", Correlation: agentprotocol.WorkerCorrelation{ObjectiveID: req.Plan.ID, TaskID: candidate.ID, Generation: st.AssignmentGeneration, DispatchID: "dispatch-" + dispatchNonce[len("claim-"):]}}
+			}
 			attempt = st.Attempt
 			generation = st.AssignmentGeneration
+			dispatch = st.WorkerDispatch
 			s.Tasks[taskKey(req.Plan.ID, candidate.ID)] = st
 			return nil
 		}
 		return errors.New("no eligible task")
-	})
+	}
+	if req.Worker != nil {
+		if req.Registry == nil || req.TaskID == "" {
+			return Result{}, errors.New("enrolled reservation requires registry and exact task")
+		}
+		var capability string
+		for _, t := range req.Plan.Tasks {
+			if t.ID == req.TaskID {
+				capability = t.Capability
+			}
+		}
+		err = req.Registry.ReserveWorker(*req.Worker, agentprotocol.Capability(capability), reserve)
+	} else {
+		err = store.Update("ORCHESTRATOR", "acquire-next", reserve)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -130,6 +177,7 @@ func Acquire(req Request) (Result, error) {
 			st := s.Tasks[taskKey(req.Plan.ID, selected.ID)]
 			if st.Token == token {
 				st.Status = "BLOCKED"
+				failWorker(s, &st)
 				st.SessionID = started.SessionID
 				st.Branch = started.Branch
 				st.Worktree = started.Worktree
@@ -141,12 +189,17 @@ func Acquire(req Request) (Result, error) {
 		if rollbackErr != nil {
 			err = errors.Join(err, fmt.Errorf("persist failed acquisition: %w", rollbackErr))
 		}
-		return Result{Task: selected, SessionID: started.SessionID, State: started.State, Token: token, Attempt: attempt, AssignmentGeneration: generation}, fmt.Errorf("acquire task %s: %w", selected.ID, err)
+		return Result{WorkerDispatch: dispatch, Task: selected, SessionID: started.SessionID, State: started.State, Token: token, Attempt: attempt, AssignmentGeneration: generation}, fmt.Errorf("acquire task %s: %w", selected.ID, err)
 	}
 	if err := store.Update("ORCHESTRATOR", "bind-assignment", func(s *state.Snapshot) error {
 		st := s.Tasks[taskKey(req.Plan.ID, selected.ID)]
 		if st.Status != "ASSIGNED" || st.Token != token || st.AssignmentGeneration != generation {
 			return errors.New("task assignment generation changed")
+		}
+		if st.WorkerDispatch != nil {
+			if err := req.Registry.CheckWorkerReservation(*s, *st.WorkerDispatch); err != nil {
+				return err
+			}
 		}
 		st.SessionID = started.SessionID
 		st.Branch = started.Branch
@@ -154,9 +207,26 @@ func Acquire(req Request) (Result, error) {
 		s.Tasks[taskKey(req.Plan.ID, selected.ID)] = st
 		return nil
 	}); err != nil {
-		return Result{}, fmt.Errorf("bind task assignment: %w", err)
+		// The worktree/operational claim exists already. Preserve its identity
+		// and block it rather than losing evidence when enrollment changes or the
+		// binding publication fails. Each compensation is fenced by the reservation.
+		compensation := store.Update("ORCHESTRATOR", "assignment-bind-failed", func(s *state.Snapshot) error {
+			st := s.Tasks[taskKey(req.Plan.ID, selected.ID)]
+			if st.Status != "ASSIGNED" || st.Token != token || st.AssignmentGeneration != generation {
+				return errors.New("assignment changed before bind compensation")
+			}
+			st.SessionID, st.Branch, st.Worktree = started.SessionID, started.Branch, started.Worktree
+			if err := coordination.BlockOwnedSession(primary, st); err != nil {
+				return err
+			}
+			st.Status, st.Blocker = "BLOCKED", "assignment binding failed; inspect preserved worktree"
+			failWorker(s, &st)
+			s.Tasks[taskKey(req.Plan.ID, selected.ID)] = st
+			return nil
+		})
+		return Result{WorkerDispatch: dispatch, Task: selected, SessionID: started.SessionID, Branch: started.Branch, Worktree: started.Worktree, Token: token, Attempt: attempt, AssignmentGeneration: generation}, errors.Join(fmt.Errorf("bind task assignment: %w", err), compensation)
 	}
-	return Result{Task: selected, SessionID: started.SessionID, State: started.State, Branch: started.Branch, Worktree: started.Worktree, Token: token, Attempt: attempt, AssignmentGeneration: generation}, nil
+	return Result{WorkerDispatch: dispatch, Task: selected, SessionID: started.SessionID, State: started.State, Branch: started.Branch, Worktree: started.Worktree, Token: token, Attempt: attempt, AssignmentGeneration: generation}, nil
 }
 
 func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration uint64, human string) error {
@@ -207,11 +277,12 @@ func AuthorizeRecovery(workspace, objectiveID, taskID string, expectedGeneration
 			return errors.New("blocked assignment changed during recovery")
 		}
 		current.AssignmentHistory = append(current.AssignmentHistory, state.AssignmentHistory{
-			Attempt: current.Attempt, AssignmentGeneration: current.AssignmentGeneration,
+			WorkerDispatch: current.WorkerDispatch, Attempt: current.Attempt, AssignmentGeneration: current.AssignmentGeneration,
 			Token: current.Token, SessionID: current.SessionID, Branch: current.Branch,
 			Worktree: current.Worktree, BaseSHA: current.BaseSHA, Blocker: current.Blocker,
 		})
 		current.Status = "PENDING"
+		current.WorkerDispatch = nil
 		current.Token = ""
 		current.SessionID = ""
 		current.Branch = ""
@@ -250,6 +321,9 @@ func Complete(workspace, objectiveID, taskID, token, sessionID string, generatio
 		}
 		if st.Status != "ASSIGNED" || st.Token != token || st.SessionID != sessionID || st.AssignmentGeneration != generation {
 			return errors.New("stale or unauthorized task completion")
+		}
+		if st.WorkerDispatch != nil {
+			return errors.New("enrolled completion requires controller validation and review")
 		}
 		st.Status = "COMPLETE"
 		st.Token = ""
@@ -412,6 +486,7 @@ func Block(workspace, objectiveID string, a Result, reason string) error {
 			return fmt.Errorf("block operational assignment: %w", err)
 		}
 		t.Status = "BLOCKED"
+		failWorker(s, &t)
 		t.Blocker = reason
 		s.Tasks[key] = t
 		return nil

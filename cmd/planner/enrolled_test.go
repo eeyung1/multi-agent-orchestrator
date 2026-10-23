@@ -98,6 +98,11 @@ func TestEnrolledPlannerConsoleRequiresExactHumanConfirmation(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer client.Close()
+			// Enrollment bytes can arrive before the server publishes its READY
+			// route. A lifecycle round trip establishes that readiness explicitly.
+			if err := client.Heartbeat(ctx); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := io.WriteString(writer, "candidates\n"); err != nil {
 				t.Fatal(err)
 			}

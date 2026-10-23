@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/eeyung1/multi-agent-orchestrator/internal/agentprotocol"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/execution"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/objective"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/planner"
@@ -22,15 +23,19 @@ type Worker struct {
 	Args    []string `json:"args"`
 }
 type Config struct {
-	Planner            planner.Provider             `json:"planner"`
-	Workers            map[string]Worker            `json:"workers"`
-	Validators         map[string]execution.Command `json:"validators"`
-	RequiredValidators []string                     `json:"required_validators,omitempty"`
-	AllowedScopes      []string                     `json:"allowed_scopes"`
-	MaxWorkers         int                          `json:"max_workers"`
-	TimeoutSeconds     int                          `json:"timeout_seconds"`
-	HeartbeatSeconds   int                          `json:"heartbeat_seconds"`
-	RepairAttempts     int                          `json:"repair_attempts"`
+	// Explicit trusted allowlist; managed workers win when both match.
+	EnrolledCapabilities []agentprotocol.Capability   `json:"enrolled_capabilities,omitempty"`
+	AcceptanceSeconds    int                          `json:"acceptance_seconds,omitempty"`
+	Runtime              *EnrolledWorkers             `json:"-"`
+	Planner              planner.Provider             `json:"planner"`
+	Workers              map[string]Worker            `json:"workers"`
+	Validators           map[string]execution.Command `json:"validators"`
+	RequiredValidators   []string                     `json:"required_validators,omitempty"`
+	AllowedScopes        []string                     `json:"allowed_scopes"`
+	MaxWorkers           int                          `json:"max_workers"`
+	TimeoutSeconds       int                          `json:"timeout_seconds"`
+	HeartbeatSeconds     int                          `json:"heartbeat_seconds"`
+	RepairAttempts       int                          `json:"repair_attempts"`
 
 	// WorktreePreparation is trusted human policy, never part of a model proposal.
 	WorktreePreparation []execution.Command `json:"worktree_preparation,omitempty"`
@@ -73,7 +78,7 @@ func (c *Config) Validate() error {
 	if err := c.Planner.ValidateDefinition(); err != nil {
 		return err
 	}
-	if len(c.Workers) == 0 {
+	if len(c.Workers) == 0 && len(c.EnrolledCapabilities) == 0 {
 		return fmt.Errorf("select at least one worker capability")
 	}
 	for name, w := range c.Workers {
@@ -98,6 +103,16 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) ValidatePolicy() error {
+	seen := map[agentprotocol.Capability]bool{}
+	for _, cap := range c.EnrolledCapabilities {
+		if cap.Validate() != nil || seen[cap] {
+			return fmt.Errorf("invalid or duplicate enrolled capability")
+		}
+		seen[cap] = true
+	}
+	if c.AcceptanceSeconds < 0 || c.AcceptanceSeconds > 300 {
+		return fmt.Errorf("acceptance_seconds must be 0 (30s default) to 300")
+	}
 	if c.MaxWorkers == 0 {
 		c.MaxWorkers = 3
 	}
@@ -150,6 +165,9 @@ func (c Config) Policy() objective.Policy {
 	for name := range c.Workers {
 		p.Capabilities[name] = true
 	}
+	for _, cap := range c.EnrolledCapabilities {
+		p.Capabilities[string(cap)] = true
+	}
 	for name := range c.Validators {
 		p.Validators[name] = true
 	}
@@ -157,7 +175,7 @@ func (c Config) Policy() objective.Policy {
 }
 func (c Config) Capabilities() []string {
 	var names []string
-	for name := range c.Workers {
+	for name := range c.Policy().Capabilities {
 		names = append(names, name)
 	}
 	sort.Strings(names)

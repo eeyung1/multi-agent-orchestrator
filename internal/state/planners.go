@@ -66,7 +66,7 @@ func (r *AgentRegistryState) validatePlanners() error {
 		if !ok || session.Identity.AgentID != b.AgentID || session.Generation != b.Generation {
 			return errors.New("Planner binding lacks enrollment")
 		}
-		if b.Active && ((session.Status != AgentReady && session.Status != AgentBusy) || session.SupersededBy != "" || session.AssignedRole != agentprotocol.RolePlanner || session.Identity.ProtocolVersion != agentprotocol.Version3) {
+		if b.Active && ((session.Status != AgentReady && session.Status != AgentBusy) || session.SupersededBy != "" || session.AssignedRole != agentprotocol.RolePlanner || (session.Identity.ProtocolVersion != agentprotocol.Version3 && session.Identity.ProtocolVersion != agentprotocol.Version4)) {
 			return errors.New("active Planner binding is fenced")
 		}
 		switch b.RequestStatus {
@@ -109,7 +109,7 @@ func (s Snapshot) validatePlannerObjectives() error {
 		if e == nil {
 			continue
 		}
-		if s.Authority.Schema != SchemaVersion || s.AgentRegistry == nil || e.Correlation.Validate() != nil {
+		if (s.Authority.Schema < 3 || s.Authority.Schema > SchemaVersion) || s.AgentRegistry == nil || e.Correlation.Validate() != nil {
 			return errors.New("invalid objective Planner evidence")
 		}
 		bindings := append([]PlannerBinding(nil), s.AgentRegistry.PlannerHistory...)
