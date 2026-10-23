@@ -4,7 +4,7 @@ Coordinate multiple AI coding agents on a local Git repository. The Go controlle
 
 **New here?** Start with the [quick setup guide](setup.md). The detailed provider, manual-operation, and recovery reference is in [advanced-setup.md](advanced-setup.md).
 
-**Current integration boundary:** the managed quick-start supports Codex, Claude Code, and Gemini CLI. Independent agents require a compatible protocol client/bridge and explicit enrollment. Antigravity is a planned integration, not a built-in provider in the current workflow. The system is local orchestration, not a security sandbox or a public hosted service.
+**Current integration boundary:** the managed quick-start supports Codex, Claude Code, and Gemini CLI. Independent agents require a compatible protocol client/bridge and explicit enrollment. An SDK-backed Antigravity bridge is available under [integrations/antigravity](integrations/antigravity/README.md); it requires explicit enrollment and live verification and is not a built-in managed CLI provider. The system is local orchestration, not a security sandbox or a public hosted service.
 
 ## Currently implemented
 
