@@ -230,7 +230,7 @@ class ProtocolBridge:
             capabilities, roles = ["planning"], ["PLANNER"]
         else:
             capabilities, roles = [self.args.capability], ["WORKER"]
-        reader, self.writer = await asyncio.open_unix_connection(self.args.socket)
+        reader, self.writer = await asyncio.open_unix_connection(self.args.socket, limit=MAX_FRAME_BYTES + 1)
         identity = {"protocol_version": PROTOCOL_VERSION, "agent_id": self.args.agent_id,
             "session_id": self.session_id, "metadata": {"provider": "antigravity", "runtime": "google-antigravity-sdk"},
             "capabilities": capabilities, "supported_roles": roles}
