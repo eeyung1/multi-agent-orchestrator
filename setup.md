@@ -72,6 +72,45 @@ go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers
 
 Use only provider IDs shown as available by your installation. You do not need to use this optional command if you prefer the interactive selection.
 
+## 4A. Choose how your agents join
+
+There are **two different workflows**:
+
+- **Managed providers (simplest):** choose `--planner codex` (or `claude` / `gemini`) and `--workers codex,gemini`. Go starts provider subprocesses when it has approved tasks. This does **not** attach to chat windows you already have open.
+- **Independently running agents:** use the enrolled-agent workflow below. Each agent must have a compatible protocol client/bridge. The bridge connects that agent to Go, which assigns the Planner role or Worker role only after you approve it.
+
+### Make an independently running agent the Planner
+
+From the orchestrator checkout, create a private socket directory and start an enrolled-Planner run. Replace the project path with yours. On macOS, use a canonical `/private/tmp` path instead of `/tmp`.
+
+```bash
+mkdir -m 700 /tmp/mao-agent-run
+go run ./cmd/planner --workspace ~/Projects/my-project \
+  --enrolled-planner-socket /tmp/mao-agent-run/agents.sock
+```
+
+At the trusted console, invite the agent:
+
+```text
+invite {"agent_id":"my-planner","credential_file":"/tmp/mao-agent-run/planner-invitation.json"}
+```
+
+Start that agent's **compatible bridge/client** in another terminal, using the same socket, invitation file and AgentID. The bridge must implement the Planner request/response protocol; an ordinary open chat cannot connect by itself. Back in the Planner console, enter `candidates`, review the listed session, and enter `select <number>` for the exact agent you want. Confirm the selection when prompted. Then describe your objective and review/approve the proposed plan.
+
+### Bring independent agents on board as Workers
+
+After the Planner is selected, invite each intended Worker through the trusted Worker console. For example, if the approved task capability is `coding`:
+
+```text
+invite {"agent_id":"worker-a","credential_file":"/tmp/mao-agent-run/worker-a.json","roles":["WORKER"],"capabilities":["coding"]}
+```
+
+Repeat with a different AgentID and credential filename for each Worker. Start each Worker's compatible bridge/client in its own process, pointing it to the run's socket and its own invitation. The trusted policy must allow the same capability in `enrolled_capabilities`; the plan must assign tasks with a matching capability.
+
+In the Worker console, enter `workers`, inspect the live sessions, then use `authorize <number>` to authorize each exact session/incarnation and confirm when prompted. After you approve the plan and worker authorizations, use `run` when the console requests it. Go sends each Worker its bounded task instructions and required context for its assigned scope/worktree; Workers do not take tasks directly from each other. The controller tracks execution, runs configured validators, and collects the results for review.
+
+**Important:** `cmd/agent-bridge` included in this repository is a protocol/fixture example, not a real AI agent integration. Its `--worker-file` and `--proposal-file` modes simulate work or a plan; they do not make an external product reason or code. A product such as Antigravity can be selected this way only after a compatible bridge/integration for it exists. See the detailed [enrolled Planner guide](docs/enrolled-planner.md), [enrolled Worker guide](docs/enrolled-workers.md), and [local attachment/security notes](docs/agent-attachment.md) for exact protocol and policy requirements.
+
 ## 5. Approve the setup prompts carefully
 
 On first use, the application may ask you to make important decisions:
