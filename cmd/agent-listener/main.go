@@ -15,6 +15,7 @@ import (
 
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentattachment"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/agentregistry"
+	"github.com/eeyung1/multi-agent-orchestrator/internal/operations"
 	"github.com/eeyung1/multi-agent-orchestrator/internal/strictjson"
 )
 
@@ -72,7 +73,7 @@ func run(parent context.Context, args []string, in io.ReadCloser, out io.Writer)
 			<-finished
 		}
 	}()
-	fmt.Fprintln(out, "Local attachment listener ready. Trusted console commands: invite <JSON>, invitations, revoke <id>, agents, quit.")
+	fmt.Fprintln(out, "Local attachment listener ready. Trusted console commands: invite <JSON>, invitations, revoke <id>, agents, status [--json], inspect-agent, inspect-task, quit.")
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 65536)
 	for scanner.Scan() {
@@ -81,6 +82,12 @@ func run(parent context.Context, args []string, in io.ReadCloser, out io.Writer)
 			break
 		}
 		if line == "" {
+			continue
+		}
+		if handled, err := operations.Console(ctx, *workspace, line, out, operations.Options{Connected: s.Connected}); handled {
+			if err != nil {
+				fmt.Fprintln(out, "Inspection rejected:", err)
+			}
 			continue
 		}
 		if err := console(s, r, line, out); err != nil {

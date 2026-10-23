@@ -1,10 +1,16 @@
-# Local agent attachment: Phases 4–6
+# Local agent attachment: Phases 4–7
 
 This is the local admission/liveness foundation for independently started
 compatible agents or bridges. Phase 5 adds human-selected enrolled Planner
 execution through a run-hosted listener; see [enrolled Planner operation](enrolled-planner.md).
 Phase 6 adds opt-in enrolled-worker dispatch through the run-hosted listener; see
 [enrolled worker operation](enrolled-workers.md). Managed defaults remain available.
+Phase 7 provides [status, inspection, JSON/watch and safe local operator actions](operations.md).
+The trusted listener/Planner/Worker consoles accept `status [--json]`,
+`inspect-agent --agent ID` and `inspect-task --objective ID --task ID`. These
+queries do not expire registry sessions. Host consoles can observe their own exact
+transport refs; a separate status process explicitly reports connection availability
+as unknown, rather than equating recent liveness with socket connectivity.
 "Any compatible agent" means a runtime with a bridge/client implementing the
 universal protocol; a closed product without an integration surface cannot attach
 automatically. The included bridge is a provider-neutral liveness example, not an

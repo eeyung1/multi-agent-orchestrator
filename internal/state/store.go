@@ -208,6 +208,10 @@ func (s *Store) read(allowLegacy bool) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	return s.decode(data, allowLegacy)
+}
+
+func (s *Store) decode(data []byte, allowLegacy bool) (Snapshot, error) {
 	var snap Snapshot
 	if err := strictjson.Decode(data, &snap); err != nil {
 		return Snapshot{}, fmt.Errorf("decode orchestrator state: %w", err)

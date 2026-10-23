@@ -11,13 +11,29 @@ determine participation; provider identity does not grant authority.
 managed workers, plus invitation-based Unix-local attachment for compatible
 independently started clients/bridges, and human selection/execution of an enrolled
 Planner, and capability-matched dispatch to heterogeneous enrolled workers with
-simultaneous independent execution. **In development:** operational UX and
-real-product bridge acceptance. Local attachment alone does not grant execution
+simultaneous independent execution, and local operational status/inspection with
+safe existing recovery controls. **In development:** graphical UX and real-product
+bridge acceptance. Local attachment alone does not grant execution
 or coordination authority.
 
 > **New user?** Start with [setup.md](setup.md) for managed workflows. For the separate local attachment foundation, see [agent-attachment.md](docs/agent-attachment.md). The roadmap below distinguishes shipped foundations from future execution features.
 
 ## Currently implemented
+
+Phase 7 operator commands project existing Go authority without creating another
+control plane. See [local operations](docs/operations.md) for status, JSON/watch,
+agent/task inspection, attention codes and exact-session recovery controls:
+
+```bash
+go run ./cmd/orchestrator status --workspace /path/to/project
+go run ./cmd/orchestrator status --workspace /path/to/project --json --watch
+go run ./cmd/orchestrator inspect-agent --workspace /path/to/project --agent worker-a
+go run ./cmd/orchestrator inspect-task --workspace /path/to/project --objective objective-id --task task-id
+```
+
+Standalone views distinguish registry liveness from process-local connection
+availability. No public hosted service, Internet attachment, distributed consensus,
+universal vendor bridge or graphical dashboard is supplied.
 
 The control-plane foundations already include Go authority, objective/task
 scheduling, exclusive claims, assignment generations, isolated branches/worktrees,
@@ -149,9 +165,9 @@ acceptance remains necessary. See [Planner architecture and limitations](docs/pl
 
 ## Target architecture / in development
 
-This section defines the product architecture to build. Local attachment is
-implemented; the complete cross-process task lifecycle and other transports
-remain the target.
+This section defines the product architecture. Local attachment, enrolled planning,
+parallel enrolled-worker execution and operational views are implemented. Other
+transports, universal product integration and discovery remain future work.
 A user must ultimately be able to make multiple compatible agents available,
 enroll/select one planning-capable agent as Planner, enroll others as Workers,
 run eligible independent assignments simultaneously, and receive consolidated
@@ -252,7 +268,8 @@ history; an expired heartbeat or disconnect alone does not authorize takeover.
 **Roadmap / in development.** Phase 1's wire/domain model, Phase 2's internal
 registry/liveness foundation, Phase 3's transport library, and Phase 4's local
 attachment/session lifecycle and Phase 5's enrolled Planner selection/exchange
-and Phase 6 enrolled-worker dispatch are implemented. Phases 7–8 remain future work. This
+and Phase 6 enrolled-worker dispatch and Phase 7 local operational views/controls
+are implemented. Phase 8 real-product acceptance remains future work. This
 milestone extends the existing control-plane
 foundations with dynamic agent admission and a common logical contract. The
 following complete lifecycle remains the target; enrolled Planner communication
@@ -387,10 +404,12 @@ Managed workers remain supported. See [Phase 6 operation](docs/enrolled-workers.
 
 ### Phase 7 — Operational UX
 
-Expose connected agents, roles, capabilities, availability, current assignments,
-progress and blockers. Provide clear attach/enroll instructions and distinguish
-discovered, connected, admitted and available states without requiring manual
-coordination-ledger edits.
+**Implemented locally:** read-only human/JSON status, cancellable bounded-refresh
+watch, agent/task inspection, deterministic attention and existing fenced recovery/
+disconnect actions. The projection distinguishes persisted lifecycle, derived
+liveness, and host-only connection observations. Claims and bindings retain their
+existing authority. See [operations.md](docs/operations.md). Graphical dashboards,
+public hosting and remote control are not supplied.
 
 ### Phase 8 — Real-world acceptance
 
