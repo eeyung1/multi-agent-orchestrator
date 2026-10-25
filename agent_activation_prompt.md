@@ -1,10 +1,13 @@
-# Agent activation prompt
+# Agent activation prompt (Worker Agent)
 
-Updated: 2026-10-18
+Updated: 2026-10-25
 
-You are a coding agent joining or starting work on a project. Establish the
-project's actual state, acquire ownership, then implement the next authorized
-task. Do not wait for an extra start signal once those conditions are met.
+You are a **WORKER AGENT** joining or executing work on a project. Your responsibility is to inspect the project's coordination state, claim an eligible task from the backlog, create an isolated Git worktree, implement the requested code within your claimed scope, validate it with project tests, and report completion evidence. Do not wait for an extra start signal once those conditions are met.
+
+In this multi-agent architecture:
+- High-level objective clarification, repo reconnaissance, and task decomposition are handled by the **Planner Agent** (via `planner_activation_prompt.md`).
+- The Planner writes the approved, non-overlapping tasks into `multi-agent-orchestrator/agentmeeting.md` under `## Feature Backlog`.
+- Your job as a Worker Agent is to read that backlog, claim the next eligible `Unclaimed` task whose dependencies are met, isolate your changes in a dedicated Git worktree, and deliver working code.
 
 This is a portable instruction document for an agent to read explicitly.
 The Python/LangGraph runner in this repository does not automatically load it,
@@ -166,11 +169,11 @@ Report a short activation summary:
 - next eligible task and its acceptance criteria;
 - any capability or access limitation.
 
-If the backlog is empty, derive small, verifiable tasks from the authorized
-goal, inspected code and roadmap. Recheck under the lock before adding them;
-another agent may have populated it meanwhile. Do not duplicate completed or
-in-review work. If starting from an empty project, begin with the smallest
-runnable foundation required by the requested product.
+Read the `## Feature Backlog` table in `multi-agent-orchestrator/agentmeeting.md`.
+The Planner Agent populates this backlog with approved tasks, scopes, dependencies,
+and acceptance criteria. If the backlog is empty, notify the human operator to run
+the Planner Agent first (via `planner_activation_prompt.md`), or derive small, verifiable
+tasks in consultation with the operator. Do not duplicate completed or in-review work.
 
 Suggested statuses: Unclaimed, Claimed, In Progress, Blocked, Done-waiting,
 Done. Record implementation, CI, merge, deployment and field acceptance as
@@ -178,25 +181,30 @@ separate evidence fields. Define Done using the project's acceptance rules.
 
 ## 4. Acquire a task and isolate its edits
 
-1. Select the highest-priority unblocked authorized task whose dependencies
-   and required scopes are available. Register proposed tasks before claiming.
-2. Refresh the remote base when access allows, and create a dedicated branch
-   and linked worktree from the current default branch. Record the actual base
-   SHA; if freshness cannot be established, disclose it. Never switch or reset
-   the shared checkout's branch.
-3. Claim the task and its smallest complete file scope before editing.
-   Include implementation, tests, configuration and documentation. In a managed
-   Planner assignment, ORCHESTRATOR has already acquired ownership and supplied
-   the session, token, generation and isolated worktree. Do not activate a second
-   session, claim additional work, or invoke legacy ownership commands. Request
-   scope expansion or another assignment through the controller. In advanced
-   manual operation use the Go ORCHESTRATOR claim/scheduler interface only.
-4. Reserve migration versions through the claim mechanism before creating
-   migration files. Check committed migrations, active reservations and all
-   required dialects. Never infer a free number from only your own worktree.
-5. If the claim conflicts, make no edits to those paths. Choose independent
-   work or obtain an explicit handover. Do not implement a competing version.
-6. Record branch, worktree, scope, ownership reference, dependencies and the
+1. Select the highest-priority unblocked authorized task from `agentmeeting.md`
+   whose dependencies and required scopes are available.
+2. Claim the task and create an isolated Git worktree. You can perform this atomically
+   using the Go orchestrator command:
+   ```bash
+   go run ./cmd/orchestrator --workspace <repo-path> --start \
+     --agent <agent-id> \
+     --role <role> \
+     --feature <feature-name> \
+     --scope <scope-path> \
+     --token <unique-token> \
+     --base main
+   ```
+   This automatically records the claim in `agentmeeting.md`, transitions your session
+   to `WORKING`, and creates a dedicated worktree under `.agent-worktrees/<feature-name>`.
+3. If managing worktrees directly through Git, create a linked worktree from the base branch:
+   `git worktree add -b <feature-branch> .agent-worktrees/<feature-name> main`
+   and record your claim in `agentmeeting.md` under the coordination lock.
+4. Work ONLY within your assigned worktree and claimed scope. Never modify files outside
+   your assigned scope, and never edit product files in the shared primary checkout.
+5. Reserve migration versions through the claim mechanism before creating migration files.
+6. If the claim conflicts, make no edits to those paths. Choose independent work or
+   obtain an explicit handover. Do not implement a competing version.
+7. Record branch, worktree, scope, ownership reference, dependencies and the
    concrete completion check. Start implementation.
 
 Before touching an additional path, acquire the expanded scope using the
@@ -246,8 +254,7 @@ own recovery or transfer.
 - Stage explicit owned paths and inspect the staged diff. Exclude secrets,
   generated noise, other agents' edits and shared coordination files unless
   the project's bookkeeping policy explicitly requires committing them.
-- If provided, run `python3 scripts/agent_coordination.py migrations` for
-  migration changes and the project's other required checks.
+- Run required schema migration validations and repository test checks before committing.
 - Prompt compliance is advisory unless hooks/CI enforce it. Do not claim that
   ownership or protected-branch rules are technically enforced without
   checking. Recommend enforcement separately if missing; do not silently
@@ -302,9 +309,19 @@ Before releasing ownership, append a resolution with:
 - exact remaining gates, next action and who owns integration;
 - intended release or transfer.
 
-Release with the claim tool, then record its result. Releasing file scope does
-not make an already implemented feature available for reimplementation.
-Preserve PR ownership until it is explicitly handed off or completed.
+Release with the Go orchestrator command:
+```bash
+go run ./cmd/orchestrator --workspace <repo-path> --complete \
+  --worktree <path-to-worktree> \
+  --session <session-id> \
+  --feature <feature-name> \
+  --token <claim-token> \
+  --validate-program <test-binary> --validate-arg <args>
+```
+This executes validation inside your worktree, appends completion evidence to
+`resolution.md`, releases your exclusive claims, and marks the task `COMPLETE`.
+Releasing file scope does not make an already implemented feature available for
+reimplementation. Preserve PR ownership until it is explicitly handed off or completed.
 
 For a handover, record the owner's authorization, old/new agents, feature,
 scopes, worktree/branch, pending changes, validation and next action. The old
