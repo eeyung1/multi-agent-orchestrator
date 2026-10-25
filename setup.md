@@ -1,26 +1,23 @@
 # Multi-Agent Orchestrator — Quick Setup
 
-This guide gets you from a fresh clone to your first reviewed multi-agent coding task. You do not need to edit a configuration file to start with a supported built-in provider.
+Coordinate multiple AI coding agents on a local Git repository. The Go controller manages task ownership, isolated Git worktrees, supervised execution, configured validation, and collected results. You approve the plan and review the evidence; it does not automatically merge or deploy.
 
-**What it does:** a local Go controller coordinates coding agents, assigns eligible tasks to separate Git worktrees, runs configured checks, and collects evidence for your review.
-
-**What it does not do:** it is not a security sandbox, does not automatically discover every open AI-agent window, and does not merge or deploy your code. You remain responsible for reviewing results.
+---
 
 ## 1. Check the requirements
 
 You need:
-
-- Git.
-- Go 1.24 or newer.
+- **Git** (2.20 or newer).
+- **Go 1.24 or newer** (check with `go version`).
 - A target project that is already a Git repository.
-- At least one supported coding-agent CLI installed and authenticated: **Codex, Claude Code, or Gemini CLI**.
-- Permission to run the provider and its model. Provider use may incur costs under your account.
+- Coding agents to run the tasks. These can be:
+  - **Interactive coding agents in chat/IDE** (e.g. Google Antigravity, Claude, Cursor, Windsurf, ChatGPT) using the **Prompt-Driven Workflow** (recommended below).
+  - **Supported CLI tools installed on PATH** (Codex, Claude Code, or Gemini CLI) using the **Managed CLI Workflow**.
+  - **Headless protocol bridges** connecting over Unix sockets using the **Automated IPC Protocol**.
 
-The orchestrator does not install providers, request credentials on their behalf, or guarantee that a detected CLI is authenticated. Antigravity is a planned integration, not a built-in provider in the current quick-start workflow.
+---
 
 ## 2. Clone the orchestrator
-
-Run:
 
 ```bash
 mkdir -p ~/Projects
@@ -29,135 +26,187 @@ git clone https://github.com/eeyung1/multi-agent-orchestrator.git
 cd multi-agent-orchestrator
 ```
 
-Run the Go tests before using your checkout:
+Verify the build and tests:
 
 ```bash
 go test ./...
 ```
 
+*(Note: On systems where `go` invokes an older bootstrap version, prefix commands with your installed Go 1.24 toolchain, e.g. `GOTOOLCHAIN=go1.24.10 go test ./...`).*
+
+---
+
 ## 3. Prepare your project
 
-Clone or create the Git repository you want the agents to work on. For example, if your project already exists remotely:
+Ensure your target project is a Git repository:
 
 ```bash
-cd ~/Projects
-git clone <YOUR_PROJECT_GIT_URL> my-project
+cd ~/Projects/my-project
+git status
 ```
 
-Replace `<YOUR_PROJECT_GIT_URL>` with your repository's actual clone URL. Do not use the placeholder literally.
-
-## 4. Start the Planner
-
-From the `multi-agent-orchestrator` directory, run:
+Initialize the authoritative coordination directory (`multi-agent-orchestrator/`):
 
 ```bash
-go run ./cmd/planner --workspace ~/Projects/my-project
+cd ~/Projects/multi-agent-orchestrator
+go run ./cmd/orchestrator --workspace ~/Projects/my-project --enroll \
+  --enrollment-disposition NATIVE \
+  --enrollment-provenance "Human operator initialized project coordination"
 ```
 
-Replace `~/Projects/my-project` with the actual path to your Git project.
+This bootstraps the shared coordination ledgers under `~/Projects/my-project/multi-agent-orchestrator/`:
+- `agentmeeting.md`: Live presence, claims, heartbeats, and the **Feature Backlog**.
+- `coordination.md`: Human operator decisions, permissions, and blockers.
+- `resolution.md`: Append-only evidence of validated completed tasks.
 
-To see which built-in providers the orchestrator detects:
+---
 
-```bash
-go run ./cmd/planner --list-providers
+## 4. Primary Workflow: Prompt-Driven Planner & Workers
+
+This is the simplest and most flexible workflow for human operators using interactive AI coding assistants (such as Antigravity, Claude, Cursor, or ChatGPT). No Unix sockets or credential JSON files are needed.
+
+```
+                              HUMAN OPERATOR
+                              /            \
+        1. Discuss & Plan    /              \   3. Paste Prompt & Work
+                            v                v
+                     PLANNER AGENT     WORKER AGENTS
+                      (Window 1)       (Windows 2, 3...)
+                           |                 |
+         2. Writes Backlog v                 v 4. Reads & Claims Task
+            +------------------------------------+
+            | multi-agent-orchestrator/          |
+            |   ├── agentmeeting.md (Backlog)    |
+            |   ├── coordination.md (Decisions)  |
+            |   └── resolution.md (Evidence)     |
+            +------------------------------------+
+                           |
+                 5. Isolated Git Worktrees
+                    (.agent-worktrees/)
 ```
 
-Detection checks trusted absolute `PATH` entries. It does not verify authentication or prove that a provider can successfully call its model. If a provider is missing, install and authenticate it using that provider's official instructions, then try again.
+### Step 4A. Activate Agent 1 as the Planner
 
-You can select providers and a concurrency limit directly when you know the IDs:
+Open your first agent window (e.g. in Google Antigravity, Claude, or your IDE), navigate to your target project, and provide the complete [`planner_activation_prompt.md`](planner_activation_prompt.md) (or copy the prompt block below):
+
+```markdown
+You are the PLANNER AGENT for this project.
+Do not write product code, create branches, or implement features yourself.
+
+Your responsibility:
+1. Inspect the repository structure, git log, tech stack, and conventions.
+2. Ask me (the human operator) any clarification questions needed to fully understand our objective, constraints, and acceptance criteria.
+3. Once we agree on the scope and design, decompose the objective into discrete, independent, bounded tasks.
+4. Each task must specify:
+   - Task ID & feature name
+   - Exact file scope (repository-relative paths; concurrent tasks must have non-overlapping scopes)
+   - Dependencies on other tasks
+   - Required capability (e.g., "coding")
+   - Acceptance criteria and concrete validation commands (e.g., "go test ./...")
+5. Write the approved tasks into `multi-agent-orchestrator/agentmeeting.md` under the `## Feature Backlog` table.
+```
+
+- **Discussion & Clarifications**: The Planner inspects your repository and conducts an interactive interview with you in chat to clarify requirements.
+- **Decomposition**: Once you confirm the tasks, the Planner records them in `multi-agent-orchestrator/agentmeeting.md`. Example:
+
+```markdown
+## Feature Backlog
+| # | Feature | Scope | Status | Claimed By | Depends On | Acceptance Criteria | Validation |
+|---|---|---|---|---|---|---|---|
+| 1 | user-auth | internal/auth/ | Unclaimed | - | - | Auth middleware verifies JWT tokens | go test ./internal/auth/... |
+| 2 | metrics-api | internal/metrics/ | Unclaimed | - | - | Expose prometheus metrics endpoint | go test ./internal/metrics/... |
+```
+
+---
+
+### Step 4B. Activate Worker Agents with `agent_activation_prompt.md`
+
+Whenever you start a worker agent in another window, tab, or tool:
+
+1. Copy the full contents of [`agent_activation_prompt.md`](agent_activation_prompt.md) and paste it into the worker agent's chat or prompt.
+2. Add a one-line directive at the top:
+   ```markdown
+   Follow the attached activation prompt. Read `multi-agent-orchestrator/agentmeeting.md` to find the next unclaimed task from the Planner's backlog, claim it, isolate your work in a git worktree, implement it, and validate it.
+   ```
+
+#### What the Worker Agent Does:
+1. **Reads Backlog**: Inspects `multi-agent-orchestrator/agentmeeting.md` and selects an `Unclaimed` task.
+2. **Claims Task & Isolates Work**:
+   The worker uses the Go orchestrator command to atomically record its claim and create an isolated Git worktree:
+   ```bash
+   go run ./cmd/orchestrator --workspace ~/Projects/my-project --start \
+     --agent Worker-A \
+     --role backend \
+     --feature user-auth \
+     --scope internal/auth/ \
+     --token token-auth-1 \
+     --base main
+   ```
+   *This automatically registers the claim in `agentmeeting.md` and checks out a dedicated worktree under `.agent-worktrees/user-auth` so workers never collide.*
+3. **Implements & Validates**: The worker navigates to its isolated worktree, edits only its assigned scope, and runs the required tests.
+4. **Records Completion**:
+   When tests pass, the worker appends its result to `resolution.md` and completes its session:
+   ```bash
+   go run ./cmd/orchestrator --workspace ~/Projects/my-project --complete \
+     --worktree /path/to/worktree \
+     --session SESSION_ID \
+     --feature user-auth \
+     --token token-auth-1 \
+     --validate-program go --validate-arg test --validate-arg ./...
+   ```
+   *This releases the claim and updates the backlog status to `COMPLETE`.*
+
+---
+
+### Step 4C. Human Review & Integration
+
+Once tasks are complete:
+- Inspect the diffs and evidence recorded in `multi-agent-orchestrator/resolution.md`.
+- Review the dedicated feature branches created by each worker.
+- Merge, push, or deploy according to your repository's standard release process. **The orchestrator never automatically merges or deploys code without your explicit action.**
+
+---
+
+## 5. Alternative Workflow A: Single-Command Managed CLI Providers
+
+If you have installed and authenticated supported CLI tools (**Codex, Claude Code, or Gemini CLI**) on your system PATH, Go can manage the entire lifecycle automatically:
 
 ```bash
 go run ./cmd/planner --workspace ~/Projects/my-project --planner codex --workers codex,gemini --max-workers 3
 ```
 
-Use only provider IDs shown as available by your installation. You do not need to use this optional command if you prefer the interactive selection.
+- Go invokes the selected CLI tool as Planner.
+- Conducts the Q&A discussion and plan presentation in your terminal.
+- After you confirm `[y/N]`, Go automatically spawns CLI worker subprocesses in isolated worktrees, runs validation, and produces the review report.
 
-## 4A. Choose how your agents join
+---
 
-There are **two different workflows**:
+## 6. Alternative Workflow B: Headless IPC Protocol (For CI / Automated Bridges)
 
-- **Managed providers (simplest):** choose `--planner codex` (or `claude` / `gemini`) and `--workers codex,gemini`. Go starts provider subprocesses when it has approved tasks. This does **not** attach to chat windows you already have open.
-- **Independently running agents:** use the enrolled-agent workflow below. Each agent must have a compatible protocol client/bridge. The bridge connects that agent to Go, which assigns the Planner role or Worker role only after you approve it.
+For headless background daemons or automated integration bridges communicating over private Unix domain sockets:
 
-### Make an independently running agent the Planner
+- Start the Planner with `--enrolled-planner-socket /private/path/agents.sock`.
+- Issue one-time 0600 invitation credentials with `invite {"agent_id": ...}`.
+- Connect external protocol bridges speaking `orchestrator-agent/v3` (Planner) and `orchestrator-agent/v4` (Workers).
+- Authorize sessions in the console and dispatch work.
+- See [docs/enrolled-planner.md](docs/enrolled-planner.md), [docs/enrolled-workers.md](docs/enrolled-workers.md), and [docs/agent-attachment.md](docs/agent-attachment.md) for protocol specifications.
 
-From the orchestrator checkout, create a private socket directory and start an enrolled-Planner run. Replace the project path with yours. On macOS, use a canonical `/private/tmp` path instead of `/tmp`.
+---
 
-```bash
-mkdir -m 700 /tmp/mao-agent-run
-go run ./cmd/planner --workspace ~/Projects/my-project \
-  --enrolled-planner-socket /tmp/mao-agent-run/agents.sock
-```
-
-At the trusted console, invite the agent:
-
-```text
-invite {"agent_id":"my-planner","credential_file":"/tmp/mao-agent-run/planner-invitation.json"}
-```
-
-Start that agent's **compatible bridge/client** in another terminal, using the same socket, invitation file and AgentID. The bridge must implement the Planner request/response protocol; an ordinary open chat cannot connect by itself. Back in the Planner console, enter `candidates`, review the listed session, and enter `select <number>` for the exact agent you want. Confirm the selection when prompted. Then describe your objective and review/approve the proposed plan.
-
-### Bring independent agents on board as Workers
-
-After the Planner is selected, invite each intended Worker through the trusted Worker console. For example, if the approved task capability is `coding`:
-
-```text
-invite {"agent_id":"worker-a","credential_file":"/tmp/mao-agent-run/worker-a.json","roles":["WORKER"],"capabilities":["coding"]}
-```
-
-Repeat with a different AgentID and credential filename for each Worker. Start each Worker's compatible bridge/client in its own process, pointing it to the run's socket and its own invitation. The trusted policy must allow the same capability in `enrolled_capabilities`; the plan must assign tasks with a matching capability.
-
-In the Worker console, enter `workers`, inspect the live sessions, then use `authorize <number>` to authorize each exact session/incarnation and confirm when prompted. After you approve the plan and worker authorizations, use `run` when the console requests it. Go sends each Worker its bounded task instructions and required context for its assigned scope/worktree; Workers do not take tasks directly from each other. The controller tracks execution, runs configured validators, and collects the results for review.
-
-**Important:** `cmd/agent-bridge` included in this repository is a protocol/fixture example, not a real AI agent integration. Its `--worker-file` and `--proposal-file` modes simulate work or a plan; they do not make an external product reason or code. A product such as Antigravity can be selected this way only after a compatible bridge/integration for it exists. See the detailed [enrolled Planner guide](docs/enrolled-planner.md), [enrolled Worker guide](docs/enrolled-workers.md), and [local attachment/security notes](docs/agent-attachment.md) for exact protocol and policy requirements.
-
-## 5. Approve the setup prompts carefully
-
-On first use, the application may ask you to make important decisions:
-
-1. **Repository authority:** authorize the orchestrator to be the sole coordinator for this repository. If another tool already owns agent/task coordination, stop and reconcile that setup instead of approving blindly.
-2. **Execution policy:** review the validators required for your project. Choose checks that actually protect the codebase; the suggested checks may not cover every project.
-3. **Worktree preparation (optional):** if the project needs local dependencies or generated files in a fresh worktree, you may explicitly authorize a preparation command. Only approve commands you trust.
-4. **Context sharing:** inspect the repository context and confirm before it is sent to the selected planning provider. Provider privacy terms and costs apply.
-5. **Plan approval:** read the proposed tasks, dependencies, scopes, and checks. Approve only work you want the agents to perform.
-
-A fresh Git worktree contains tracked files, not your local dependency folders. For example, a JavaScript project may need `node_modules` installed in each worktree before tests can run. Preparation is not silently inferred or run without authorization.
-
-## 6. Let the agents work, then review
-
-After you approve the plan, the Go controller manages task ownership, assignment generations, isolated branches/worktrees, execution supervision, configured validation, and evidence collection.
-
-When the objective reaches `AWAITING_REVIEW`:
-
-- Review the reported task results, exact branch heads, and validation evidence.
-- Approve the results or request changes through the supported review flow.
-- Inspect the generated branches and diffs before integrating them.
-- Merge, push, or deploy only through your own deliberate, authorized workflow.
-
-Restarting the same Planner command lets you select a saved objective. Do not delete coordination state, claims, branches, or worktrees to force a retry. If an assignment is blocked, inspect the preserved work and follow the [advanced recovery guide](advanced-setup.md#recover-a-blocked-planner-assignment).
-
-## Common problems
+## Common Problems
 
 | Problem | What to do |
 | --- | --- |
-| `go: go.mod requires go >= 1.24` | Install/use Go 1.24 or newer, then check `go version`. |
-| No compatible Planner CLI detected | Install and authenticate Codex, Claude Code, or Gemini CLI; rerun `--list-providers`. |
-| Provider detected but call fails | Check that provider's own login, model access, CLI version, and account limits. Detection does not test these. |
-| Tests fail in a fresh worktree | Review the validator output and explicitly configure trusted worktree preparation if dependencies are missing. Do not weaken required checks just to get a green result. |
-| Another agent/coordinator already owns tasks | Stop and reconcile existing authority before enabling the orchestrator. |
-| An assignment is blocked or disconnected | Preserve its branch/worktree and evidence; use the advanced recovery instructions after reviewing the old writer's state. |
+| `go: go.mod requires go >= 1.24` | Ensure Go 1.24+ is installed. Set `GOTOOLCHAIN=go1.24.10` or verify `go version`. |
+| Task scope overlap rejected | Two workers cannot touch the same file scope simultaneously. Worker B must choose an independent task or wait for Worker A to finish. |
+| Tests fail in fresh worktree | A fresh Git worktree excludes untracked files such as `node_modules`. Run dependency install (e.g. `npm install`) inside the worktree before running tests. |
+| Another agent owns the task | An agent cannot take over another active claim without an explicit human decision recorded in `coordination.md`. |
+| Unsaved work blocked | Workers must commit or clean up worktree changes before completing a task. |
 
-## Important boundaries
+---
 
-- This is **local orchestration**, not an operating-system or container sandbox.
-- A local socket closing does not prove an independently running process has stopped writing.
-- Local filesystem coordination is not distributed locking across multiple machines.
-- Independent agents can participate only if they have a compatible protocol client/bridge and are explicitly enrolled and authorized. The orchestrator does not automatically attach arbitrary open chat windows or vendor applications.
-- The Go controller remains the authority. A Planner or Worker cannot grant itself permissions, take another task's claim, or approve its own final review.
-- Human review does not itself merge or deploy code.
+## Important Boundaries
 
-## Need the detailed reference?
-
-See [Advanced Setup and Manual Operations](advanced-setup.md) for custom providers and policy, enrolled Planner/Worker sessions, operational commands, manual workflows, GitHub integration, and recovery procedures.
-
-For architecture and implementation boundaries, start at the [README](README.md) and follow the linked protocol, attachment, worker, and acceptance documents.
+- **Local Orchestration**: This coordinates local processes and Git worktrees; it is not an OS/container security sandbox.
+- **Sole Coordination Authority**: Go ORCHESTRATOR and the shared coordination ledgers manage ownership. Individual agents cannot self-authorize out-of-scope work or take over another agent's claim.
+- **Human Review Authority**: Approval of a plan or review package records human decision evidence; it never automatically merges to `main` or deploys to production.
