@@ -144,8 +144,9 @@ Whenever you start a worker agent in another window, tab, or tool:
    ```
    *This automatically registers the claim in `agentmeeting.md` and checks out a dedicated worktree under `.agent-worktrees/user-auth` so workers never collide.*
 3. **Implements & Validates**: The worker navigates to its isolated worktree, edits only its assigned scope, and runs the required tests.
-4. **Records Completion**:
-   When tests pass, the worker appends its result to `resolution.md` and completes its session:
+4. **Commits Without Co-Author Trailers**: Staged changes are committed locally on the feature branch without `Co-authored-by:` trailers.
+5. **Records Handoff & Releases Claim**:
+   When tests pass, the worker logs `HANDOFF: commit <sha> ready for publication` in `agentmeeting.md`, appends its result to `resolution.md`, and completes its session:
    ```bash
    go run ./cmd/orchestrator --workspace ~/Projects/my-project --complete \
      --worktree /path/to/worktree \
@@ -155,15 +156,18 @@ Whenever you start a worker agent in another window, tab, or tool:
      --validate-program go --validate-arg test --validate-arg ./...
    ```
    *This releases the claim and updates the backlog status to `COMPLETE`.*
+6. **Autonomously Moves to Next Task**: The worker immediately returns to step 1 to claim the next unclaimed, unblocked task from `agentmeeting.md` without waiting for manual intervention.
 
 ---
 
-### Step 4C. Human Review & Integration
+### Step 4C. Continuous Publication & Integration (Planner-Driven)
 
-Once tasks are complete:
-- Inspect the diffs and evidence recorded in `multi-agent-orchestrator/resolution.md`.
-- Review the dedicated feature branches created by each worker.
-- Merge, push, or deploy according to your repository's standard release process. **The orchestrator never automatically merges or deploys code without your explicit action.**
+While workers code and commit locally, the Planner agent (or authorized integrator):
+- **Monitors Handoffs**: Detects worker handoffs logged in `agentmeeting.md`.
+- **Pushes & Opens PRs**: Pushes feature branches to remote `origin` and opens pull requests into `main`.
+- **Monitors CI**: Watches GitHub Actions CI runs for the exact head commit SHA until checks pass.
+- **Merges & Reconciles**: Merges the PR into `main`, pulls merged `origin/main` locally, updates the shared coordination ledgers (`agentmeeting.md`, `coordination.md`, `resolution.md`, `state.json`), and unblocks dependent tasks.
+- **Eliminates Bottlenecks**: Workers never stall on DNS restrictions, credentials, PR creation, or CI waits.
 
 ---
 

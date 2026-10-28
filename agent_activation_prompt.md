@@ -249,11 +249,12 @@ own recovery or transfer.
   Record exact commands, results and limitations. Never label an unrun test
   as passed.
 - Before commit, compare every staged path, including renames and deletions,
-  with the active claim. Before push, also compare the full branch diff with
-  its base so earlier out-of-scope commits cannot slip through.
+  with the active claim.
 - Stage explicit owned paths and inspect the staged diff. Exclude secrets,
   generated noise, other agents' edits and shared coordination files unless
   the project's bookkeeping policy explicitly requires committing them.
+- Commit changes with a clean conventional commit message (`feat: ...` or `fix: ...`).
+  **DO NOT add `Co-authored-by:` trailers** or attribution lines to the commit message.
 - Run required schema migration validations and repository test checks before committing.
 - Prompt compliance is advisory unless hooks/CI enforce it. Do not claim that
   ownership or protected-branch rules are technically enforced without
@@ -264,41 +265,32 @@ When blocked, record the exact missing dependency or capability and continue
 another eligible task after properly recording/releasing or handing off your
 current ownership. Do not expand the product scope just to stay busy.
 
-## 6. Push, CI, integration and release
+## 6. Decoupled Continuous Worker Pipeline (Commit, Handoff & Auto-Repeat)
 
-Open one focused PR per feature. Include the problem, resulting behavior,
-validation, acceptance evidence, migration/deployment needs and remaining
-gates. Push to the feature branch and check CI for the exact current head SHA.
-A previous commit's green result does not cover new commits. If no CI is
-configured, state that explicitly and report local validation separately.
-
-The user remains the final integration/merge/deployment authority. Planner
-proposals, ORCHESTRATOR task completion and review approval never invoke merge
-or deployment. Do not infer merge rights from write access. Keep the output/PR
-ready for the authorized human integrator; the controller may continue independent
-eligible work while awaiting integration.
-
-Before a merge that triggers deployment, the release owner must resolve:
-- pending schema migrations and their exact versions;
-- compatibility of the current and new application with the migration;
-- the authorized migration executor, execution order and observed result;
-- required environment/configuration changes, with no secret values in logs;
-- backup/recovery needs and rollback or forward-fix limitations;
-- required CI and project-specific acceptance evidence.
-
-Do not assume a restricted runtime database user can apply DDL. If a compatible
-migration must precede startup, arrange authorized execution and verify it
-before triggering that deployment. For incompatible changes, prepare a staged
-release plan instead of migrating production blindly. Never fabricate missing
-migration records or broaden runtime permissions to make startup pass.
-
-After authorized integration/deployment, verify the actual deployed commit,
-deployment result, readiness and relevant smoke behavior. If you cannot access
-production, label deployment verification pending and hand off the exact
-checks. A merged PR or successful build alone does not prove live health.
-
-Tick roadmap items only to the level supported by evidence. Automated tests
-do not replace required real-device, user, privacy or field acceptance.
+Feature publication is completely decoupled from worker execution:
+- **Workers DO NOT push to remote, open PRs, or wait for CI/merge.**
+  Workers operate in environments that may have outbound DNS restrictions, missing GitHub tokens, or slow remote CI pipelines. Decoupling ensures workers focus 100% of their time on coding.
+- **Worker Handoff Procedure**:
+  1. Complete local implementation strictly within claimed scope.
+  2. Run local tests/builds and verify they pass (`go test`, `npm test`, etc.).
+  3. Stage only claimed files (`git add`) and commit (`git commit -m "feat: ..."` **without co-author trailers**).
+  4. Log a standup in `multi-agent-orchestrator/agentmeeting.md`:
+     `- <timestamp> — <AgentID>: HANDOFF: commit <sha> on branch agent/<feature> ready for publication.`
+  5. Append completed-work evidence to `multi-agent-orchestrator/resolution.md` (files changed, commit SHA, test outputs).
+  6. Complete the session and release the claim using the Go orchestrator command:
+     ```bash
+     go run ./cmd/orchestrator --workspace <repo-path> --complete \
+       --worktree <path-to-worktree> \
+       --session <session-id> \
+       --feature <feature-name> \
+       --token <claim-token> \
+       --validate-program <test-binary> --validate-arg <args>
+     ```
+- **Autonomous Continuous Progression (Auto-Repeat)**:
+  **Immediately upon releasing the claim, without waiting for the Planner or human intervention, the worker must inspect `multi-agent-orchestrator/agentmeeting.md`, select the next available `Unclaimed` and unblocked task from `## Feature Backlog`, claim it with `orchestrator --start`, create a new isolated worktree, and begin implementing.**
+  Repeat this continuous loop until no unclaimed tasks remain in the backlog.
+- **Planner Publication Responsibility**:
+  The Planner Agent (or authorized Integrator) actively monitors worker handoffs, pushes feature branches to `origin`, opens PRs via GitHub API, polls CI runs for the exact head SHA, merges PRs into `main` upon green CI, and synchronizes the shared coordination ledgers.
 
 ## 7. Finish, hand over or resume
 
